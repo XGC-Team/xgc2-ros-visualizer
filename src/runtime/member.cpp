@@ -421,4 +421,14 @@ Json::Value Member::counters() const {
     if(robotChannel(impl_->profile.kind,static_cast<Channel>(c))) result[channelName(static_cast<Channel>(c))]=Json::UInt64(impl_->counts[c].load());
   return result;
 }
+Json::Value Member::peerStatus() const {
+  const auto& p=*impl_;
+  Json::Value result(Json::objectValue);
+  if (!p.profile.hasScene()) { result["state"]="not required"; return result; }
+  const auto publishers=p.subscribers.empty()?0:p.subscribers.front().getNumPublishers();
+  result["topic"]=p.profile.pose_topic;
+  result["publishers"]=publishers;
+  result["state"]=publishers?"connected":"waiting for topic";
+  return result;
+}
 } // namespace xgc2_ros_visualizer

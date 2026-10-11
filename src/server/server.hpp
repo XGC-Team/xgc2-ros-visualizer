@@ -3,6 +3,7 @@
 #include <csignal>
 #include <cstdint>
 #include <condition_variable>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -22,11 +23,13 @@ void validateRobotId(const std::string& id);
 
 class Server {
  public:
-  Server(std::size_t workers,Rates rates,const volatile std::sig_atomic_t* signal_stop=nullptr);
+  Server(std::size_t workers,Rates rates,std::string world_clock,const volatile std::sig_atomic_t* signal_stop=nullptr);
   ~Server();
   // Readiness for the describe contract; safe from any thread.
   bool ready() const;
   Json::Value facts() const;
+  void startMasterWatch(std::function<void()> on_bound);
+  void activateRos(); // Domain worker: apply the latest loaded rows once.
   // Native control owner only; the fixed domain worker calls these directly.
   // They own validation, atomic application and publication fences.
   Json::Value status() const;
@@ -48,15 +51,23 @@ class Server {
   void replaceSnapshot();
   void wakePublisher();
   void watchMaster();
+  void fail(std::exception_ptr failure);
   void requireRunning() const;
+  void requireMasterIfBound() const;
   Instance& instance(const std::string& id) const;
   void requireFreeClaims(const std::string& id,const InstanceSpec& spec) const;
   void countMembers();
   InputPool input_;
-  // The ROS master this server is bound to: its address and, when it publishes
-  // one, the identity of this master run. A replaced master ends the server.
-  std::string master_uri_,master_run_id_;
-  std::atomic<bool> master_reachable_{true};
+  class MasterErrors;
+  std::unique_ptr<MasterErrors> master_errors_;
+  std::string master_uri_,master_run_id_,world_clock_;
+  mutable std::mutex master_state_mutex_;
+  int master_pid_{0};
+  std::atomic<bool> master_reachable_{false},ros_bound_{false};
+  std::atomic<std::uint64_t> master_attempts_{0};
+  std::unique_ptr<ros::NodeHandle> ros_runtime_;
+  std::function<void()> on_master_bound_;
+  bool native_active_{false}; // Domain worker only.
   std::map<std::string,std::shared_ptr<Instance>> instances_; // Control-loop owner only.
   std::shared_ptr<const std::vector<std::shared_ptr<Instance>>> snapshot_;
   std::shared_ptr<const Rates> rates_;

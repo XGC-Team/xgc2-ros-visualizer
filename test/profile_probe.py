@@ -302,16 +302,19 @@ def run(probe, definition):
 
     # ---- The master is part of the binding: unreachable is reported, replaced ends the server
     probe.start_server()
+    wait(lambda: probe.rpc('GET', '/v1/describe')['facts']['ros_master_state'] == 'connected',
+         'server did not bind the private master')
     facts = probe.rpc('GET', '/v1/describe')['facts']
     require(facts['ros_master_uri'] == probe.master_uri and facts['ros_master_run_id'], 'describe lost the master identity')
     probe.kill_master()
-    wait(lambda: not probe.rpc('GET', '/v1/describe')['ready'], 'a dead master was not reported', 8)
+    wait(lambda: probe.rpc('GET', '/v1/describe')['facts']['ros_master_state'] == 'unreachable',
+         'a dead master was not reported', 8)
     require(probe.rpc('GET', '/v1/describe')['facts']['reason'] == 'ros master unreachable', 'wrong reason')
     require(probe.server.poll() is None, 'an unreachable master ended the server')
     started = time.monotonic()
-    require(not probe.rpc('GET', '/v1/describe?wait_ready_ms=200', bound=False)['ready'],
-            'unbound discovery lost the unavailable master')
-    require(time.monotonic() - started >= .19, 'unbound discovery did not hold its readiness wait')
+    require(probe.rpc('GET', '/v1/describe?wait_ready_ms=200', bound=False)['ready'],
+            'master absence changed own readiness')
+    require(time.monotonic() - started < 1, 'ready unbound discovery waited for the master')
     probe.start_master()  # a new run on the same address
     wait(lambda: probe.server.poll() is not None, 'a replaced master did not end the server', 10)
     require(probe.server.returncode == 1 and not os.path.exists(probe.socket), 'a replaced master must fail the server')

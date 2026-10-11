@@ -45,5 +45,9 @@ definition=/usr/share/xgc2/process-definitions/xgc2-ros-visualizer.json
 test -s "$definition"
 python3 "$repo_root/test/profile_probe.py" "$binary" "$definition"
 python3 "$repo_root/test/installed_node_probe.py" "$binary"
+python3 "$repo_root/test/start_order_probe.py" "$binary"
+if [[ "${XGC2_RUN_LONG_TESTS:-0}" == 1 ]]; then
+  python3 "$repo_root/test/start_order_probe.py" "$binary" --long
+fi
 python3 "$repo_root/test/check_description_resources.py"
 echo 'Installed single-entry SDK, process definition, robot profiles, rates, persistent relay, URDF and owned cleanup checks passed'

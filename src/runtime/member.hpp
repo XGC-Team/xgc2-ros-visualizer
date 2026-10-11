@@ -94,6 +94,7 @@ class Member {
   // Shut the robot's own resources down and return the deletions for the shared outputs.
   Retraction retire(const ros::Time& now);
   Json::Value counters() const;
+  Json::Value peerStatus() const;
 
  private:
   class Impl;

@@ -9,6 +9,11 @@ application threads, helper processes or `robot_state_publisher` children.
 Core starts it through its process definition, discovers the service with
 `GET /v1/describe` and applies the display configuration of its Run through
 RPC. Normal Stop terminates that Run's native server.
+The socket is ready before the master, Foxglove bridge or robot topics exist.
+One background master watcher uses jittered backoff; requested ROS subscribers
+pick up late topics and publisher restarts through publisher events. The robot
+roster comes from Core's session rows, and Core replays those rows after a
+visualizer restart. The visualizer starts with an empty roster each time.
 
 The visualization of an experiment is a set of robot profiles. A profile holds
 everything needed to draw one robot (model, state source, frames, path, labels,
@@ -181,7 +186,7 @@ checks the catkin exports, linkage and actual executable. CI selects these resou
 network access to production APT for dependencies; it never uses an active Core
 container as its builder.
 
-Two private-graph probes start their own `roscore` and run the actual executable:
+Private-graph probes start their own master and run the actual executable:
 
 * `test/profile_probe.py` covers this contract: describe and its wait, creating
   an instance, changing one robot's profile and checking, through the master's
@@ -196,11 +201,22 @@ Two private-graph probes start their own `roscore` and run the actual executable
   resource counts, source-time paths at accelerated clock and low rates,
   in-process URDF joint TF, foreign parameter preservation, bounded DELETE and
   low-rate SIGTERM, restart and SIGKILL recovery without any resurrected state.
+* `test/start_order_probe.py` starts the service two seconds before its master,
+  applies rows with no master/topics, starts and restarts a publisher process,
+  and replays the identical PUT after a service restart. `--long` also measures
+  60-second publisher and master outages: CPU below 1.2 seconds, bounded retries
+  and log lines, stable thread/fd counts, recovery and master replacement.
 
 ```sh
 python3 test/profile_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node
 python3 test/installed_node_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node
+python3 test/start_order_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node
+python3 test/start_order_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node --long
 ```
+
+The CTest labels are `ros` and, for the outage test, `long`: fast cells may use
+`(cd build && ctest -LE long)`; the amd64 installed-package CI cell sets
+`XGC2_RUN_LONG_TESTS=1` and runs the outage probe.
 
 Private probes are correctness/resource checks, not formal station, browser or
 scientific-mission acceptance. Source CI and Deb preparation do not imply

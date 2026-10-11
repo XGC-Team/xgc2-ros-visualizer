@@ -39,19 +39,35 @@ also carries the instance in `X-Xrpc-Instance-ID` and is rejected with 409 when
 it differs, so a caller of a previous process can never reach the next one.
 A supplied instance header is verified on discovery calls too.
 
-`ready` is a fact of this process: it is bound to its ROS master and is not
-stopping. `facts.reason` names why it is not (`stopping`, `ros master
-unreachable`). `GET /v1/describe?wait_ready_ms=<0..30000>` is part of the
+`ready` means the process's socket is bound, its own state is loaded and it is
+not stopping. It does not require a ROS master, a Foxglove bridge or any input
+topic. `facts.ros_master_state` reports `waiting for master`, `connected` or
+`unreachable`; `facts.reason` reports master absence or stopping separately.
+`GET /v1/describe?wait_ready_ms=<0..30000>` is part of the
 unbound discovery call, with no instance header required. It holds
 the request without polling until `ready` is true, the wait elapses or the
 call's own deadline is near, and then answers with the current document. At
 most 16 calls are held; Stop answers them at once.
 
-The process never rebinds to another master. It reads the master's run id
-(`/run_id`, published by `roscore`/`roslaunch`) at startup and checks the
-master every two seconds: a master that does not answer makes `ready` false
-until it does; a master that answers with another run id is a different
-environment, so the process logs it and exits with status 1.
+The process starts before the master and waits in one background watcher.
+PUT loads the latest desired rows while it waits; the control worker activates
+them once when the master appears. No ROS connection blocks socket startup or
+the publication loop. Healthy master identity checks are two seconds apart;
+failed checks use exponential backoff with full jitter (250 ms start, factor 2,
+30 s cap), one attempt in flight and a 500 ms request bound. Failure logs report
+the first failure and at most one summary per ten seconds, including suppressed
+attempts. `facts.ros_master_connect_attempts` counts identity checks.
+
+The process never rebinds to another master. It retains both the master's PID
+and its run id (`/run_id`, when published by `roscore`/`roslaunch`); a changed
+PID or run id ends the process with status 1, including for a bare `rosmaster`.
+An unreachable master is peer status while the socket remains ready; native
+configuration writes after binding return 503 while the master is unreachable.
+Topics connect only when requested by display configuration, through normal
+ROS publisher updates. A late topic or restarted publisher uses the same
+subscription; robot status includes `input: {topic, publishers, state}`, where
+`state` is `waiting for topic` or `connected` (`not required` for description
+only robots).
 
 ## Model
 
@@ -74,6 +90,11 @@ and reports it honestly: `desiredRevision` is the revision the caller asked
 for, `appliedRevision` the one in effect, `persistedRevision` is always `null`.
 An accepted change is applied before the receipt is sent, so the two are equal
 in every successful receipt; a rejected one changes neither.
+Application here means the validated local configuration is loaded; input peers
+can still be absent. The roster comes from Core's frozen session rows. After a
+service restart the roster is empty and ready, revisions start fresh, and Core
+replays the same instance PUT. The first replay creates revision 1 again; an
+identical repeat in that process leaves its revision and generation unchanged.
 
 ## Routes
 

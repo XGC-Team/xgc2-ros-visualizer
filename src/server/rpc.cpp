@@ -90,9 +90,10 @@ bool writeRecord(void*, std::string_view record) {
 class RpcServer::Impl {
  public:
   Impl(std::string path, RpcHandler handler, DescribeProvider describe, RpcOptions options,
-       std::function<void()> quiesce_native)
+       std::function<void()> quiesce_native, std::function<void()> activate_native)
       : handler_(std::move(handler)), describe_(std::move(describe)), slots_(limits_.inflight),
         diagnostics_(diagnosticOptions()), quiesce_native_(std::move(quiesce_native)),
+        activate_native_(std::move(activate_native)),
         host_(socketOptions(std::move(path)), [this](HttpRequest request, HttpReply reply) {
           dispatch(std::move(request), std::move(reply));
         }, limits_, HttpIdentity{options.instance_id, {"/v1/describe"}}) {
@@ -179,15 +180,25 @@ class RpcServer::Impl {
   void work() noexcept {
     for (;;) {
       std::optional<Work> current;
+      bool activate = false;
       {
         std::unique_lock<std::mutex> lock(mutex_);
-        wake_.wait(lock, [this] { return size_ || stopping_.load(); });
-        if (!size_) return;
-        current = std::move(slots_[head_]);
-        slots_[head_].reset();
-        head_ = (head_ + 1) % slots_.size();
-        --size_;
-        busy_ = true;
+        wake_.wait(lock, [this] { return size_ || native_pending_ || stopping_.load(); });
+        if (native_pending_ && !stopping_.load()) {
+          native_pending_ = false;
+          activate = true;
+        } else {
+          if (!size_) return;
+          current = std::move(slots_[head_]);
+          slots_[head_].reset();
+          head_ = (head_ + 1) % slots_.size();
+          --size_;
+          busy_ = true;
+        }
+      }
+      if (activate) {
+        if (activate_native_) activate_native_();
+        continue;
       }
       try {
         if (stopping_.load()) {
@@ -214,6 +225,13 @@ class RpcServer::Impl {
         busy_ = false;
       }
     }
+  }
+  void notifyNativeReady() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      native_pending_ = true;
+    }
+    wake_.notify_one();
   }
   void stop() noexcept {
     {
@@ -264,6 +282,8 @@ class RpcServer::Impl {
   std::vector<std::optional<Work>> slots_;
   Diagnostics diagnostics_;
   std::function<void()> quiesce_native_;
+  std::function<void()> activate_native_;
+  bool native_pending_{false};
   bool native_quiesced_{false};
   std::mutex mutex_;
   std::condition_variable wake_;
@@ -276,11 +296,12 @@ class RpcServer::Impl {
 };
 
 RpcServer::RpcServer(std::string path, RpcHandler handler, DescribeProvider describe, RpcOptions options,
-                     std::function<void()> quiesce_native)
+                     std::function<void()> quiesce_native, std::function<void()> activate_native)
     : impl_(new Impl(std::move(path), std::move(handler), std::move(describe), std::move(options),
-                     std::move(quiesce_native))) {}
+                     std::move(quiesce_native), std::move(activate_native))) {}
 RpcServer::~RpcServer() = default;
 void RpcServer::run(const std::atomic<bool>& stopping) { impl_->run(stopping); }
 void RpcServer::stop() noexcept { impl_->stop(); }
+void RpcServer::notifyNativeReady() { impl_->notifyNativeReady(); }
 const std::string& RpcServer::socket_path() const noexcept { return impl_->socket_path(); }
 } // namespace xgc2_ros_visualizer

@@ -30,6 +30,8 @@ class Instance {
   // renderer, validation) is prepared before the first resource changes; if a
   // resource still fails, the previous state is restored and the error rethrown.
   Change apply(const InstanceSpec& next, InputPool& pool);
+  // The control worker activates the latest loaded state when ROS first binds.
+  void activate(InputPool& pool);
   // Replaces the rate overrides of one robot; false if they are unchanged.
   bool setRobotRates(const std::string& robot, const RateOverrides& overrides);
   const InstanceSpec& spec() const;

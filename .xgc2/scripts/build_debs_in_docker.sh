@@ -59,6 +59,7 @@ DESTDIR=/work/install cmake --install /work/build
 EOF
 docker run --rm -i --cpus 1 \
   -e HOME=/tmp -e ROS_HOME=/tmp/ros-home -e ROS_LOG_DIR=/tmp/ros-log -e ROS_IP=127.0.0.1 \
+  -e XGC2_RUN_LONG_TESTS="${XGC2_RUN_LONG_TESTS:-0}" \
   -v "$repo_root:/source:ro" -v "$output_dir:/out:ro" \
   "$image" bash -s <<'EOF'
 set -eo pipefail

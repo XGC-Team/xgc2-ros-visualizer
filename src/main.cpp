@@ -84,22 +84,19 @@ int main(int argc,char** argv) {
     const auto options=parseOptions(argc,argv);
     // ROS writes its cache and logs only where the supervisor allocated them.
     requireAllocatedDirectory("ROS_HOME");requireAllocatedDirectory("ROS_LOG_DIR");
-    // The immutable provider clock is also the native ROS data clock. Private
-    // ROS time initialization is implementation data, not a control API.
+    // Initialize names without writing parameters or starting the ROS graph.
+    // The master watcher installs the immutable clock when the master appears.
     std::vector<std::string> arguments{argv[0]};
     arguments.insert(arguments.end(),options.ros_arguments.begin(),options.ros_arguments.end());
-    arguments.push_back("_use_sim_time:="+std::string(options.world_clock=="simulation"?"true":"false"));
     if(!options.has_sim_time_remap)arguments.push_back("/use_sim_time:=~use_sim_time");
     std::vector<char*> pointers;
     for(auto& argument:arguments)pointers.push_back(&argument[0]);
     int ros_argc=static_cast<int>(pointers.size());
     ros::init(ros_argc,pointers.data(),"xgc2_ros_visualizer",ros::init_options::NoSigintHandler);
-    ros::NodeHandle ros_runtime; // Starts and retains the native ROS data graph.
-    if(ros::Time::isSimTime()!=(options.world_clock=="simulation"))
-      throw std::invalid_argument("ROS clock remap conflicts with the explicit immutable world clock");
+    ros::Time::init();
     std::signal(SIGINT,requestStop);std::signal(SIGTERM,requestStop);
     const std::string instance_id=xgc2::xrpc::new_instance_id();
-    xgc2_ros_visualizer::Server server(options.workers,xgc2_ros_visualizer::defaultRates(),&stop_requested);
+    xgc2_ros_visualizer::Server server(options.workers,xgc2_ros_visualizer::defaultRates(),options.world_clock,&stop_requested);
     xgc2_ros_visualizer::RpcOptions rpc_options;
     rpc_options.instance_id=instance_id;
     xgc2_ros_visualizer::RpcServer transport(options.socket_path,
@@ -109,7 +106,8 @@ int main(int argc,char** argv) {
           try {server.stop();}
           catch(...) {ros::shutdown();throw;}
           ros::shutdown();
-        });
+        },[&server]{server.activateRos();});
+    server.startMasterWatch([&transport]{transport.notifyNativeReady();});
     transport.run(server.stopping());server.rethrowFailure();return 0;
   } catch(const std::exception& error) {std::cerr<<"visualizer server failed: "<<std::string(error.what()).substr(0,512)<<'\n';return 1;}
 }

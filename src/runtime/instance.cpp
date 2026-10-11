@@ -132,7 +132,7 @@ class Instance::Impl {
       if (found != members.end()) member->setOverrides(found->second->overrides());
       built[entry.first] = std::move(member);
     }
-    const ros::Time now = ros::Time::now();
+    const ros::Time now = native_active ? ros::Time::now() : ros::Time();
     std::vector<std::shared_ptr<Member>> retired;
     {
       std::lock_guard<std::mutex> lock(mutex);
@@ -151,13 +151,15 @@ class Instance::Impl {
     Retraction retraction;
     for (auto& member : retired) retraction.merge(member->retire(now));
     publishRetraction(outputs, retraction);
-    for (auto& entry : built) entry.second->activate(pool);
+    if (native_active) for (auto& entry : built) entry.second->activate(pool);
     {
       std::lock_guard<std::mutex> lock(mutex);
       for (auto& entry : built) members[entry.first] = entry.second;
     }
-    reconcileOutputs();
-    applyRelays(target.scene.relays, pool);
+    if (native_active) {
+      reconcileOutputs();
+      applyRelays(target.scene.relays, pool);
+    }
   }
 
   // The shared publishers follow the policy and the membership. When what they
@@ -226,7 +228,7 @@ class Instance::Impl {
       outputs = Outputs();
       need = Need();
     }
-    const ros::Time now = ros::Time::now();
+    const ros::Time now = native_active ? ros::Time::now() : ros::Time();
     Retraction retraction;
     for (auto& entry : retired) retraction.merge(entry.second->retire(now));
     closeOutputs(stale, retraction, now);
@@ -238,6 +240,7 @@ class Instance::Impl {
   // The actual, applied state; the control thread alone writes it.
   InstanceSpec spec;
   bool created{false};
+  bool native_active{false}; // Published under mutex; only the control worker writes.
   std::uint64_t desired_revision{1}, applied_revision{1};
   std::int64_t applied_ns{steadyNs()};
   std::map<std::string, Revision> revisions;
@@ -264,6 +267,15 @@ std::uint64_t Instance::robotRevision(const std::string& robot) const { return i
 RateOverrides Instance::robotRates(const std::string& robot) const { return impl_->members.at(robot)->overrides(); }
 std::set<std::string> Instance::claims() const { return xgc2_ros_visualizer::claims(impl_->spec); }
 void Instance::deactivate() { impl_->stop(); }
+void Instance::activate(InputPool& pool) {
+  auto& p = *impl_;
+  if (p.native_active) return;
+  for (auto& entry : p.members) entry.second->activate(pool);
+  p.reconcileOutputs();
+  p.applyRelays(p.spec.scene.relays, pool);
+  std::lock_guard<std::mutex> lock(p.mutex);
+  p.native_active = true;
+}
 
 Change Instance::apply(const InstanceSpec& next, InputPool& pool) {
   auto& p = *impl_;
@@ -322,7 +334,7 @@ bool Instance::setRobotRates(const std::string& robot, const RateOverrides& over
 void Instance::tick(const Rates& table, const ros::Time& now) {
   auto& p = *impl_;
   std::lock_guard<std::mutex> lock(p.mutex);
-  if (!p.active.load()) return;
+  if (!p.active.load() || !p.native_active) return;
   const Outputs& o = p.outputs;
   TickContext context{table, p.scene.publish_transforms && valid(o.tf), p.scene.publish_scene && valid(o.scene),
                       p.scene.publish_markers && valid(o.markers), now, p.counts};
@@ -438,11 +450,12 @@ Json::Value Instance::status() const {
     row["scene"] = profile.hasScene();
     row["configuration"] = revisionJson(revision.desired, revision.applied);
     row["generation"] = Json::UInt64(revision.generation);
+    row["input"] = entry.second->peerStatus();
     robots.append(row);
   }
   result["robotCount"] = Json::UInt64(scene_robots);
   result["descriptionCount"] = Json::UInt64(p.members.size());
-  result["relayCount"] = Json::UInt64(p.relays.size());
+  result["relayCount"] = Json::UInt64(p.spec.scene.relays.size());
   result["configuration"] = revisionJson(p.desired_revision, p.applied_revision);
   result["configuration"]["state"] = "applied";
   result["configuration"]["appliedAtSteadyNs"] = Json::Int64(p.applied_ns);
@@ -470,6 +483,7 @@ Json::Value Instance::robotStatus(const std::string& robot, const Rates& table) 
   result["ready"] = p.active.load();
   result["configuration"] = revisionJson(revision.desired, revision.applied);
   result["generation"] = Json::UInt64(revision.generation);
+  result["input"] = member.peerStatus();
   result["profile"] = profile.json();
   Json::Value effective(Json::objectValue);
   for (std::size_t c = 0; c < kChannelCount; ++c) {

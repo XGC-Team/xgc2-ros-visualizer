@@ -38,7 +38,8 @@ struct RpcOptions {
 class RpcServer {
  public:
   RpcServer(std::string socket_path, RpcHandler handler, DescribeProvider describe,
-            RpcOptions options, std::function<void()> quiesce_native = {});
+            RpcOptions options, std::function<void()> quiesce_native = {},
+            std::function<void()> activate_native = {});
   ~RpcServer();
 
   RpcServer(const RpcServer&) = delete;
@@ -52,6 +53,8 @@ class RpcServer {
   // native work is never represented as rolled back by transport cancellation.
   void run(const std::atomic<bool>& stopping);
   void stop() noexcept;
+  // Deliver the master's first binding to the same worker that owns control.
+  void notifyNativeReady();
   const std::string& socket_path() const noexcept;
 
  private:

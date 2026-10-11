@@ -28,6 +28,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build, test and install-check Deb in controlled Noetic image
+        env:
+          XGC2_RUN_LONG_TESTS: ${{ matrix.arch == 'amd64' && '1' || '0' }}
         run: |
           set -euo pipefail
           install -d .ci/build-manifests
