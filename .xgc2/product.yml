@@ -18,7 +18,7 @@ apt:
     ros-noetic-xgc2-ros-visualizer:
     - focal
   depends:
-  - libxgc2-xrpc-dev
+  - libxgc2-xrpc2 (>= 0.2.0-1~focal)
   - ros-noetic-xgc2-fs150-description
   - ros-noetic-xgc2-scout-description
   - ros-noetic-xgc2-mecanum-description
