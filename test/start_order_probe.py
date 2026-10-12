@@ -123,7 +123,16 @@ def run(probe, long_test):
 
     import rospy
     from nav_msgs.msg import Path
+    from std_msgs.msg import String
     rospy.init_node('start_order_probe', anonymous=True, disable_signals=True)
+    # Subscribe after activation: the static description must arrive immediately
+    # and once, without waiting for a parameter refresh or periodic publishing.
+    descriptions = []
+    description_observer = rospy.Subscriber('/uav1/visual_robot_description', String,
+                                            descriptions.append, queue_size=1)
+    wait(lambda: len(descriptions) == 1, 'late viewer missed the latched URDF', 2)
+    require(descriptions[0].data == rospy.get_param('/uav1/visual_robot_description'),
+            'topic and parameter descriptions differ')
     displayed = collections.deque(maxlen=64)
     history = collections.deque(maxlen=64)
     observers = [rospy.Subscriber('/xgc/display/late/path', Path, displayed.append, queue_size=1),
@@ -135,6 +144,8 @@ def run(probe, long_test):
 
     publisher = source(probe, 11)
     wait(lambda: received(11) and peer(probe) == 'connected', 'late publisher data was not picked up', 10)
+    require(len(descriptions) == 1, 'static description was repeatedly published')
+    description_observer.unregister()
     original = probe.rpc('GET', '/v1/instances/run/robots/uav1')
     stop_source(publisher)
     wait(lambda: peer(probe) == 'waiting for topic', 'publisher loss was not reported')

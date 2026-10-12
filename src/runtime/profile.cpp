@@ -357,6 +357,7 @@ std::set<std::string> claims(const InstanceSpec& spec) {
       result.insert("frame-prefix:" + robot.id);
     }
   }
+    result.insert("topic:" + robot.rosNamespace() + "/visual_robot_description");
   for (const auto& relay : scene.relays) result.insert("topic:" + relay.topic);
   return result;
 }

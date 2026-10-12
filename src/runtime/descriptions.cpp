@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <ros/package.h>
 #include <sensor_msgs/JointState.h>
+#include <std_msgs/String.h>
 #include <tf2/LinearMath/Transform.h>
 #include <urdf/model.h>
 namespace xgc2_ros_visualizer {
@@ -62,6 +63,7 @@ class Description::Impl {
   std::string parameter,xml;
   std::shared_ptr<Input> input;
   ros::Subscriber subscriber;
+  ros::Publisher publisher;
   std::vector<geometry_msgs::TransformStamped> fixed;
   std::vector<Joint> joints;
   std::uint64_t applied_generation{0};
@@ -74,6 +76,11 @@ const std::string& Description::parameter() const { return impl_->parameter; }
 bool Description::statePublisher() const { return impl_->state_publisher; }
 void Description::activate(InputPool& pool) {
   ros::NodeHandle node; node.setParam(impl_->parameter,impl_->xml); impl_->parameters_set=true;
+  // A description is a static snapshot. Latched delivery handles both startup
+  // orders without making viewers poll the parameter server for new names.
+  impl_->publisher=node.advertise<std_msgs::String>(impl_->parameter,1,true);
+  std_msgs::String description; description.data=impl_->xml;
+  impl_->publisher.publish(description);
   if (!statePublisher()) return;
   node.setParam(impl_->ros_namespace+"/robot_description",impl_->xml);
   auto input=impl_->input;
@@ -107,6 +114,7 @@ void Description::appendJoint(std::vector<geometry_msgs::TransformStamped>* outp
 }
 void Description::stop() {
   impl_->subscriber.shutdown();
+  impl_->publisher.shutdown();
   if (!impl_->parameters_set) return;
   ros::NodeHandle node;
   std::string current;

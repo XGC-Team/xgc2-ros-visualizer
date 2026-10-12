@@ -310,7 +310,7 @@ TEST(InstanceDiff, ChangeReportNamesEveryOutcome) {
 TEST(InstanceRules, ClaimsAndConsistencyChecks) {
   auto spec=projectInstanceInput(fleet());
   const auto claimed=claims(spec);
-  for(const char* claim:{"scene-frame-tree","scene-global-topics","topic:/tf_static","topic:/uav1/path","topic:/uav1/ar_path","topic:/uav2/path","topic:/ugv3/path","param:/uav1/visual_robot_description"})
+  for(const char* claim:{"scene-frame-tree","scene-global-topics","topic:/tf_static","topic:/uav1/path","topic:/uav1/ar_path","topic:/uav2/path","topic:/ugv3/path","param:/uav1/visual_robot_description","topic:/uav1/visual_robot_description"})
     EXPECT_TRUE(claimed.count(claim)) << claim;
   EXPECT_FALSE(claimed.count("topic:/markers"));
   spec.scene.publish_markers=true;EXPECT_TRUE(claims(spec).count("topic:/markers"));
