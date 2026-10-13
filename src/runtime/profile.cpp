@@ -352,12 +352,12 @@ std::set<std::string> claims(const InstanceSpec& spec) {
       if (!robot.ar_path_topic.empty()) result.insert("topic:" + robot.rosNamespace() + "/" + robot.ar_path_topic);
     }
     result.insert("param:" + robot.rosNamespace() + "/visual_robot_description");
+    result.insert("topic:" + robot.rosNamespace() + "/visual_robot_description");
     if (robot.description.state_publisher) {
       result.insert("param:" + robot.rosNamespace() + "/robot_description");
       result.insert("frame-prefix:" + robot.id);
     }
   }
-    result.insert("topic:" + robot.rosNamespace() + "/visual_robot_description");
   for (const auto& relay : scene.relays) result.insert("topic:" + relay.topic);
   return result;
 }
