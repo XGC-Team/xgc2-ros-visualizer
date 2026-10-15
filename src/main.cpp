@@ -70,15 +70,7 @@ Options parseOptions(int argc,char** argv) {
 int main(int argc,char** argv) {
   try {
     if(argc==2&&std::string(argv[1])=="--prepare-rviz") {
-      std::string bytes;char buffer[65536];
-      while(std::cin.read(buffer,sizeof(buffer))||std::cin.gcount()) {
-        if(bytes.size()+static_cast<std::size_t>(std::cin.gcount())>8*1024*1024)
-          throw std::invalid_argument("RViz preparation input exceeds 8 MiB");
-        bytes.append(buffer,static_cast<std::size_t>(std::cin.gcount()));
-      }
-      if(!std::cin.eof())throw std::invalid_argument("unable to read RViz preparation input");
-      Json::StreamWriterBuilder writer;writer["indentation"]="";
-      std::cout<<Json::writeString(writer,xgc2_ros_visualizer::prepareRvizLayout(xgc2_ros_visualizer::parseJson(bytes)));
+      xgc2_ros_visualizer::prepareRvizArtifact(std::cin, std::cout);
       return 0;
     }
     const auto options=parseOptions(argc,argv);

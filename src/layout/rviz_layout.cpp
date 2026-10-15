@@ -1,11 +1,16 @@
 #include "rviz_layout.hpp"
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <iomanip>
 #include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 namespace xgc2_ros_visualizer {
 namespace {
@@ -235,5 +240,89 @@ Json::Value prepareRvizLayout(const Json::Value &input) {
   output["runMode"] = mode;
   output["worldClock"] = clock;
   return output;
+}
+
+Json::Value prepareRvizArtifact(const Json::Value &input) {
+  auto output = prepareRvizLayout(input);
+  const auto &value = input["parameters"]["outputDirectory"];
+  require(value.isString(), "RViz outputDirectory is required");
+  const auto directory = value.asString();
+  require(!directory.empty() && directory.front() == '/' &&
+              directory.find('\0') == std::string::npos,
+          "RViz outputDirectory must be an absolute path");
+  std::string current;
+  std::istringstream components(directory);
+  std::string component;
+  while (std::getline(components, component, '/')) {
+    if (component.empty())
+      continue;
+    require(component != "." && component != "..",
+            "RViz outputDirectory must be normalized");
+    current += "/" + component;
+    if (::mkdir(current.c_str(), 0700) != 0 && errno != EEXIST)
+      throw std::runtime_error("create RViz directory: " +
+                               std::string(std::strerror(errno)));
+    struct stat status {};
+    if (::lstat(current.c_str(), &status) != 0 || !S_ISDIR(status.st_mode))
+      throw std::invalid_argument("RViz outputDirectory requires real directories");
+  }
+  require(!current.empty(), "RViz outputDirectory must name an artifact directory");
+  const auto path = current + "/layout.rviz";
+  std::string temporary = current + "/.layout-XXXXXX";
+  std::vector<char> name(temporary.begin(), temporary.end());
+  name.push_back('\0');
+  int fd = ::mkstemp(name.data());
+  if (fd < 0)
+    throw std::runtime_error("create RViz artifact: " +
+                             std::string(std::strerror(errno)));
+  try {
+    const auto config = output["config"].asString();
+    std::size_t offset = 0;
+    while (offset < config.size()) {
+      const auto count = ::write(fd, config.data() + offset, config.size() - offset);
+      if (count < 0 && errno == EINTR)
+        continue;
+      if (count <= 0)
+        throw std::runtime_error("write RViz artifact: " +
+                                 std::string(std::strerror(errno)));
+      offset += static_cast<std::size_t>(count);
+    }
+    const int closed = ::close(fd);
+    fd = -1;
+    if (closed != 0 || ::rename(name.data(), path.c_str()) != 0)
+      throw std::runtime_error("publish RViz artifact: " +
+                               std::string(std::strerror(errno)));
+  } catch (...) {
+    if (fd >= 0)
+      ::close(fd);
+    ::unlink(name.data());
+    throw;
+  }
+  output.removeMember("config");
+  output["configPath"] = path;
+  return output;
+}
+
+void prepareRvizArtifact(std::istream &input, std::ostream &output) {
+  std::string bytes;
+  char buffer[65536];
+  while (input.read(buffer, sizeof(buffer)) || input.gcount()) {
+    if (bytes.size() + static_cast<std::size_t>(input.gcount()) > 8 * 1024 * 1024)
+      throw std::invalid_argument("RViz preparation input exceeds 8 MiB");
+    bytes.append(buffer, static_cast<std::size_t>(input.gcount()));
+  }
+  require(input.eof(), "unable to read RViz preparation input");
+  Json::CharReaderBuilder reader;
+  reader["allowComments"] = false;
+  reader["failIfExtra"] = true;
+  reader["rejectDupKeys"] = true;
+  Json::Value request;
+  std::string error;
+  std::istringstream json(bytes);
+  if (!Json::parseFromStream(reader, json, &request, &error))
+    throw std::invalid_argument("invalid RViz preparation JSON: " + error);
+  Json::StreamWriterBuilder writer;
+  writer["indentation"] = "";
+  output << Json::writeString(writer, prepareRvizArtifact(request));
 }
 } // namespace xgc2_ros_visualizer
