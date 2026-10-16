@@ -122,6 +122,9 @@ def run(probe, definition):
     # ---- Create: three robots, one revision each --------------------------------------------
     run_id = 'run1'
     fleet = instance([robot(name) for name in names])
+    # This probe measures the per-kind/per-robot scheduler; the display-history
+    # ceiling has its own default/override coverage in marker_rate_probe.py.
+    fleet['settings']['historyMaxRateHz'] = 100
     receipt = probe.rpc('PUT', '/v1/instances/' + run_id, fleet)
     require(receipt['created'] and not receipt['unchanged'] and receipt['changes']['added'] == names,
             'creation receipt does not name the robots')
