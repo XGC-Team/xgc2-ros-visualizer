@@ -10,7 +10,9 @@ namespace {
 constexpr const char* kinds[] = {"fs150", "scout", "mecanum", "global"};
 constexpr const char* channels[] = {"pose_tf", "joint_tf", "markers", "scene", "scene_path", "path",
   "ar_path", "ar_identity", "height_projection", "height_projection_ar", "tf_root", "tf_static",
-  "world_boundary", "readiness", "display_pointcloud", "display_grid", "display_path", "display_pose_array"};
+  "world_boundary", "readiness", "display_pointcloud", "display_grid", "display_path", "display_pose_array",
+  "display_marker", "display_marker_array"};
+static_assert(sizeof(channels) / sizeof(channels[0]) == kChannelCount, "channel names drifted from Channel");
 void object(const Json::Value& v, const std::string& name) {
   if (!v.isObject()) throw std::invalid_argument(name + " must be an object");
 }
@@ -19,6 +21,11 @@ double rate(const Json::Value& v, const std::string& name) {
     throw std::invalid_argument(name + " must be finite numeric");
   const double hz = v.asDouble();
   if (hz < 0.1 || hz > 1000) throw std::invalid_argument("rate must be within 0.1..1000 Hz");
+  return hz;
+}
+double ceiling(double hz, const char* name) {
+  if (!std::isfinite(hz) || hz < 0.1 || hz > 100)
+    throw std::invalid_argument(std::string(name) + " must be within 0.1..100 Hz");
   return hz;
 }
 std::size_t channelIndex(const std::string& name) {
@@ -146,17 +153,30 @@ Json::Value parseJson(const std::string& text) {
 std::string jsonText(const Json::Value& value) {
   Json::StreamWriterBuilder builder; builder["indentation"]=""; return Json::writeString(builder,value);
 }
+double relayPublishHz(const Rates& rates, const RelayConfig& spec, double prediction_max_hz) {
+  double hz = rates.get(spec.kind, spec.channel);
+  if (spec.max_rate_hz > 0) hz = std::min(hz, spec.max_rate_hz);
+  if (spec.role == RelayRole::Prediction) hz = std::min(hz, prediction_max_hz > 0 ? prediction_max_hz : 2);
+  return hz;
+}
+double historyPublishHz(double channel_hz, double history_max_hz) {
+  return std::min(channel_hz, history_max_hz);
+}
 RelayConfig relayConfig(const std::string& source, const std::string& topic,
-                      const std::string& message_type, RateKind kind) {
-  RelayConfig spec{source,topic,message_type,kind,Channel::DisplayPath};
+                      const std::string& message_type, RateKind kind,
+                      double max_rate_hz, RelayRole role) {
+  RelayConfig spec{source,topic,message_type,kind,Channel::DisplayPath,0,role};
   if (!canonicalTopic(spec.source) || spec.source=="/xgc/display" || spec.source.compare(0,13,"/xgc/display/")==0 ||
       spec.topic!="/xgc/display"+spec.source)
     throw std::invalid_argument("relay needs a canonical source and its display copy");
+  if (max_rate_hz != 0) spec.max_rate_hz = ceiling(max_rate_hz, "maxRateHz");
   if (spec.message_type=="sensor_msgs/PointCloud2") spec.channel=Channel::DisplayPointcloud;
   else if (spec.message_type=="nav_msgs/OccupancyGrid") spec.channel=Channel::DisplayGrid;
   else if (spec.message_type=="nav_msgs/Path") spec.channel=Channel::DisplayPath;
   else if (spec.message_type=="geometry_msgs/PoseArray") spec.channel=Channel::DisplayPoseArray;
-  else throw std::invalid_argument("relay requires one of the four full-state types");
+  else if (spec.message_type=="visualization_msgs/Marker") spec.channel=Channel::DisplayMarker;
+  else if (spec.message_type=="visualization_msgs/MarkerArray") spec.channel=Channel::DisplayMarkerArray;
+  else throw std::invalid_argument("relay requires PointCloud2, OccupancyGrid, Path, PoseArray, Marker or MarkerArray");
   return spec;
 }
 } // namespace xgc2_ros_visualizer

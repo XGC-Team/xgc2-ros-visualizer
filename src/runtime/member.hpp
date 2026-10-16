@@ -35,6 +35,8 @@ struct TickContext {
   bool transforms, scene, markers;
   const ros::Time& now;
   Counters& totals;
+  double history_max_rate_hz;
+  bool history_visible;
 };
 
 // The messages one tick collects from all robots; the instance publishes each

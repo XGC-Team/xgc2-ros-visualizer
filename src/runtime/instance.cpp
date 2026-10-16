@@ -146,6 +146,9 @@ class Instance::Impl {
       }
       if (scene.boundary_json != target.scene.boundary_json || scene.boundary_mode != target.scene.boundary_mode) boundary_sent = false;
       scene = target.scene;
+      history_max_rate_hz = target.history_max_rate_hz;
+      history_visible = target.history_visible;
+      prediction_max_rate_hz = target.prediction_max_rate_hz;
       static_dirty = true;
     }
     Retraction retraction;
@@ -254,6 +257,9 @@ class Instance::Impl {
   std::map<std::string, RelayRecord> relays;
   std::array<RateGate, kChannelCount> gates;  // the global row: root TF, statics, boundary, readiness
   bool static_dirty{true}, boundary_sent{false}, scene_ready_sent{false}, description_ready_sent{false};
+  double history_max_rate_hz{2};
+  bool history_visible{true};
+  double prediction_max_rate_hz{2};
   TickBatch batch;
   Counters counts;
 };
@@ -337,7 +343,8 @@ void Instance::tick(const Rates& table, const ros::Time& now) {
   if (!p.active.load() || !p.native_active) return;
   const Outputs& o = p.outputs;
   TickContext context{table, p.scene.publish_transforms && valid(o.tf), p.scene.publish_scene && valid(o.scene),
-                      p.scene.publish_markers && valid(o.markers), now, p.counts};
+                      p.scene.publish_markers && valid(o.markers), now, p.counts,
+                      p.history_max_rate_hz, p.history_visible};
   TickBatch& b = p.batch;
   b.clear();
   for (auto& entry : p.members) entry.second->tick(context, b);
@@ -350,7 +357,7 @@ void Instance::tick(const Rates& table, const ros::Time& now) {
   }
   if (valid(o.markers) && !b.markers.markers.empty()) o.markers.publish(b.markers);
   if (valid(o.scene)) {
-    if (!b.scene.entities.empty()) {
+    if (!b.scene.entities.empty() || !b.scene.deletions.empty()) {
       // Robots that do not stream scene paths announce their label once; the
       // layer a late subscriber receives must still hold it.
       std::set<std::string> present;
@@ -421,7 +428,8 @@ void Instance::tick(const Rates& table, const ros::Time& now) {
   }
   const auto wall = std::chrono::steady_clock::now();
   for (auto& entry : p.relays)
-    if (entry.second.relay->publish(table, wall)) counted(entry.second.config.kind, entry.second.config.channel);
+    if (entry.second.relay->publish(table, wall, p.prediction_max_rate_hz, now))
+      counted(entry.second.config.kind, entry.second.config.channel);
 }
 
 double Instance::maximumOverride() const {

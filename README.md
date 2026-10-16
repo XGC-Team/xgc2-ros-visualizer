@@ -114,6 +114,7 @@ scheduler immediately, including when all rates are 0.1 Hz.
 | Global `tf_static`, `world_boundary`, `readiness` | 1 Hz | Latched fixed aliases/URDF TF, world boundary layers and ready events |
 | Global `joint_tf` | 30 Hz | In-process URDF joint TF for descriptions without a matching concrete scene kind |
 | All kinds `display_pointcloud`, `display_grid`, `display_path`, `display_pose_array` | 10 Hz | Original serialized data under `/xgc/display` |
+| All kinds `display_marker`, `display_marker_array` | 10 Hz | Coalesced Marker / MarkerArray copies under `/xgc/display` |
 
 All applicable ceilings accept finite 0.1–1000 Hz numbers. The table holds the
 defaults of every robot of a kind; a robot can override the channels of its own
@@ -140,21 +141,47 @@ time and respects rollback/reset semantics. URDF XML is loaded from installed
 package-relative files. Parameters and fixed/movable joint transforms are
 produced in-process using the original description prefix; no RSP is forked.
 
-A wire relay request is `{source,topic,messageType}`; its kind comes from the
-frozen Robot roster. Source names are unique
-canonical absolute names outside `/xgc/display`; output is exactly
-`/xgc/display` + source. Maximum 64 per instance. Only PointCloud2,
-OccupancyGrid, Path and PoseArray full-state messages are accepted. The relay
-receives serialized bytes once and publishes the same immutable pointer using
-the original type/MD5/definition. It does not decode, rewrite Header sequence,
-convert fields, replay previously published samples or budget the source itself.
-The native relay representation also carries the product-projected kind. A wire
-`robotKind` or individual relay rate field is rejected.
+A wire relay request is `{source,topic,messageType}` plus optional `maxRateHz`
+(finite 0.1–100, JSON null or absent means no extra ceiling) and optional
+`role` (`prediction`, `obstacle`, or `semantic`; null or absent means none).
+Its kind comes from the frozen Robot roster. Source names are unique canonical
+absolute names outside `/xgc/display`; output is exactly `/xgc/display` + source.
+Maximum 128 per instance. PointCloud2, OccupancyGrid, Path and PoseArray are
+copied byte for byte: the relay publishes the same immutable pointer and does
+not decode or rewrite them. Marker and MarkerArray are coalesced by namespace
+and id. A declaration above the channel's rate does not raise it. The effective
+ceiling is the minimum of the channel rate, `maxRateHz` when set, and, for
+`role=prediction` only, `settings.predictionMaxRateHz` (default 5, range
+0.1–100). A wire `robotKind` or any other relay field is rejected.
+
+The ceiling counts published messages, on the existing scheduler. MarkerArray
+sends one bounded batch per due period. A singular Marker sends one Marker per
+due period and keeps every unsent id, delete, and DELETEALL; the next id is
+the next `(ns, id)` after the one just sent, wrapping, so a busy low id cannot
+take every period. A positive Marker lifetime starts at relay ingestion, not
+at `header.stamp`. `header.stamp` is copied through unchanged. Each new ADD,
+including a refresh of the same stamp, starts that lifetime again. A delayed
+send advertises only the time still left, never a longer duration than the
+original. A lifetime of zero stays forever. An id that is already dead is deleted
+if this relay published it, and dropped if it never did. Pending Marker payload
+(points, colors, text, mesh resource) is bounded by the display-budget
+`maxMessageBytes` contract, 1048576 bytes, and by 4096 ids. A key or byte
+overflow deletes only that namespace. One global DELETEALL is reserved for an
+unknown action or more than 32 DELETEALL barriers.
+
+`settings.historyMaxRateHz` (default 10, range 0.1–100) and
+`settings.historyVisible` (default true) limit Path, AR path, scene-path, and
+the history `LINE_STRIP` on the markers topic. That line's ADD uses the path
+ceiling, the minimum of the path channel rate and `historyMaxRateHz`. Meshes,
+labels, and TF stay on their own channels and are not capped by this setting.
+Hiding history publishes that line's DELETE once, plus the empty latched paths
+and the scene-path deletion. The 6-second, 10 Hz, 61-point source ring is
+unchanged. `settings.predictionMaxRateHz` is the prediction ceiling above.
+Pose-axis settings are ignored here.
 
 Membership, queues, latest-message retention and history point counts are
-bounded. Variable ROS payload bytes and ROS serialization/transport allocations
-remain message-dependent; this is not a claim of zero allocations or a universal
-byte-memory limit.
+bounded. Full-state relay bytes are still the source message. Marker pending
+bytes stop at `maxMessageBytes`. This is not a claim of zero allocations.
 
 ## Build, package and validation
 
@@ -196,6 +223,9 @@ Private-graph probes start their own master and run the actual executable:
   rate overrides, the per-kind table, revision CAS and rejected changes; adding and
   removing robots; output claims between instances; an unreachable and a replaced
   master.
+* `test/marker_rate_probe.py` counts singular Marker messages under the ceiling,
+  including distinct ids and a DELETE followed by an ADD. It does not treat a
+  publish cycle as the Marker rate.
 * `test/installed_node_probe.py` covers the resource behavior: zero-robot
   readiness, four-type exact-byte relays, atomic validation, 20/100 robot
   resource counts, source-time paths at accelerated clock and low rates,
@@ -209,6 +239,7 @@ Private-graph probes start their own master and run the actual executable:
 
 ```sh
 python3 test/profile_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node
+python3 test/marker_rate_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node
 python3 test/installed_node_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node
 python3 test/start_order_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node
 python3 test/start_order_probe.py /opt/ros/noetic/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node --long

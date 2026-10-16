@@ -12,7 +12,7 @@
 namespace xgc2_ros_visualizer {
 
 constexpr std::size_t kMaxRobots = 256;
-constexpr std::size_t kMaxRelays = 64;
+constexpr std::size_t kMaxRelays = 128;
 
 // The URDF a robot publishes as its visual description.
 struct DescriptionProfile {
@@ -97,13 +97,18 @@ struct ScenePolicy {
 struct InstanceSpec {
   ScenePolicy scene;
   std::map<std::string, RobotProfile> robots;  // by robot id
+  // Panel ceilings. They are not a robot profile and they do not rebuild one.
+  double history_max_rate_hz{2};
+  bool history_visible{true};
+  double prediction_max_rate_hz{2};
 };
 // What applying a desired state to the current one changes, by robot id.
 struct Change {
   std::vector<std::string> added, rebuilt, removed, unchanged;
   bool scene{false};  // the shared outputs or the world boundary change
+  bool settings{false};  // history or prediction ceilings, applied without a rebuild
   std::size_t relays_added{0}, relays_removed{0};
-  bool empty() const { return added.empty() && rebuilt.empty() && removed.empty() && !scene && !relays_added && !relays_removed; }
+  bool empty() const { return added.empty() && rebuilt.empty() && removed.empty() && !scene && !settings && !relays_added && !relays_removed; }
   Json::Value json() const;
 };
 // Only a robot whose resolved profile differs is rebuilt; a changed display

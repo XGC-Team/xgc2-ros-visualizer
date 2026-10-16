@@ -191,7 +191,23 @@ TEST(InstanceInput, RelayKindComesFromTheRobotThatOwnsTheSource) {
   const auto result=projectInstanceInput(value);
   ASSERT_EQ(result.scene.relays.size(),2U);
   EXPECT_EQ(result.scene.relays[0].kind,RateKind::Fs150);EXPECT_EQ(result.scene.relays[1].kind,RateKind::Global);
-  value["displayRelays"][0]["maxRateHz"]=3;EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);value["displayRelays"][0].removeMember("maxRateHz");
+  value["displayRelays"][0]["maxRateHz"]=3;
+  auto rated=projectInstanceInput(value);
+  EXPECT_DOUBLE_EQ(rated.scene.relays[0].max_rate_hz,3);EXPECT_EQ(rated.scene.relays[0].role,RelayRole::None);
+  value["displayRelays"][0]["maxRateHz"]=Json::nullValue;value["displayRelays"][0]["role"]=Json::nullValue;
+  auto missing=projectInstanceInput(value);
+  EXPECT_DOUBLE_EQ(missing.scene.relays[0].max_rate_hz,0);EXPECT_EQ(missing.scene.relays[0].role,RelayRole::None);
+  value["displayRelays"][0]["role"]="prediction";
+  EXPECT_EQ(projectInstanceInput(value).scene.relays[0].role,RelayRole::Prediction);
+  value["displayRelays"][0]["role"]="obstacle";value["displayRelays"][0]["maxRateHz"]=8;
+  EXPECT_EQ(projectInstanceInput(value).scene.relays[0].role,RelayRole::Obstacle);
+  value["displayRelays"][0]["role"]="semantic";
+  EXPECT_EQ(projectInstanceInput(value).scene.relays[0].role,RelayRole::Semantic);
+  value["displayRelays"][0]["role"]="unknown";EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+  value["displayRelays"][0]["role"]="prediction";value["displayRelays"][0]["maxRateHz"]=0;
+  EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+  value["displayRelays"][0]["maxRateHz"]=101;EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+  value["displayRelays"][0].removeMember("maxRateHz");value["displayRelays"][0].removeMember("role");
   value["displayRelays"][0]["robotKind"]="scout";EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
   value["displayRelays"][0].removeMember("robotKind");
   value["displayRelays"].append(value["displayRelays"][0]);EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
@@ -210,6 +226,24 @@ TEST(InstanceInput, RejectsRetiredEnvelopeAndValidatesPublicationControls) {
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
   value["settings"]["publication"]["scene"]=false;
   value["settings"]["publication"]["alias"]=false;
+  EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+}
+TEST(InstanceInput, HistoryAndPredictionCeilingsStayOutOfTheRobotProfile) {
+  auto value=fleet();
+  const auto defaults=projectInstanceInput(value);
+  EXPECT_DOUBLE_EQ(defaults.history_max_rate_hz,2);EXPECT_TRUE(defaults.history_visible);
+  EXPECT_DOUBLE_EQ(defaults.prediction_max_rate_hz,2);
+  EXPECT_TRUE(diffInstance(defaults,projectInstanceInput(fleet())).empty());
+  value["settings"]["historyMaxRateHz"]=2;value["settings"]["historyVisible"]=false;value["settings"]["predictionMaxRateHz"]=4;
+  value["settings"]["historyShowPoseAxes"]=true;value["settings"]["predictionShowPoseAxes"]=false;
+  const auto tuned=projectInstanceInput(value);
+  EXPECT_DOUBLE_EQ(tuned.history_max_rate_hz,2);EXPECT_FALSE(tuned.history_visible);EXPECT_DOUBLE_EQ(tuned.prediction_max_rate_hz,4);
+  const auto change=diffInstance(defaults,tuned);
+  EXPECT_TRUE(change.settings);EXPECT_TRUE(change.rebuilt.empty());EXPECT_FALSE(change.scene);EXPECT_EQ(change.relays_added,0U);
+  value["settings"]["historyMaxRateHz"]=0;EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+  value["settings"]["historyMaxRateHz"]=10;value["settings"]["predictionMaxRateHz"]=100.1;
+  EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+  value["settings"]["predictionMaxRateHz"]=5;value["settings"]["historyVisible"]="yes";
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
 }
 TEST(InstanceInput, GroundSceneSwitchKeepsDescriptionsAndKinds) {
@@ -329,5 +363,11 @@ TEST(InstanceRules, ClaimsAndConsistencyChecks) {
   InstanceSpec many;
   for(int i=0;i<=static_cast<int>(kMaxRobots);++i) many.robots["uav"+std::to_string(i)]=parseRobotProfile("uav"+std::to_string(i),minimal("fs150"));
   EXPECT_THROW(checkInstance(many),std::invalid_argument);
+  InstanceSpec relays;
+  for(int i=0;i<static_cast<int>(kMaxRelays);++i)
+    relays.scene.relays.push_back(relayConfig("/cloud_"+std::to_string(i),"/xgc/display/cloud_"+std::to_string(i),"sensor_msgs/PointCloud2",RateKind::Global));
+  EXPECT_NO_THROW(checkInstance(relays));
+  relays.scene.relays.push_back(relayConfig("/cloud_extra","/xgc/display/cloud_extra","sensor_msgs/PointCloud2",RateKind::Global));
+  EXPECT_THROW(checkInstance(relays),std::invalid_argument);
 }
 int main(int argc,char** argv) {testing::InitGoogleTest(&argc,argv);return RUN_ALL_TESTS();}

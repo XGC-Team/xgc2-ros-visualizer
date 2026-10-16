@@ -26,6 +26,21 @@ double number(const Json::Value& value,double fallback,const std::string& name) 
   if(value.isBool()||!value.isNumeric()||!std::isfinite(value.asDouble()))throw std::invalid_argument(name+" must be finite numeric");
   return value.asDouble();
 }
+double ceilingHz(const Json::Value& value,double fallback,const std::string& name) {
+  if(value.isNull())return fallback;
+  const double hz=number(value,fallback,name);
+  if(hz<0.1||hz>100)throw std::invalid_argument(name+" must be within 0.1..100 Hz");
+  return hz;
+}
+RelayRole relayRole(const Json::Value& value) {
+  if(value.isNull())return RelayRole::None;
+  if(!value.isString())throw std::invalid_argument("relay role must be a string");
+  const std::string role=value.asString();
+  if(role=="prediction")return RelayRole::Prediction;
+  if(role=="obstacle")return RelayRole::Obstacle;
+  if(role=="semantic")return RelayRole::Semantic;
+  throw std::invalid_argument("relay role must be prediction, obstacle or semantic");
+}
 std::string trim(std::string value) {
   const auto first=value.find_first_not_of(" \t\r\n");if(first==std::string::npos)return "";
   return value.substr(first,value.find_last_not_of(" \t\r\n")-first+1);
@@ -148,6 +163,9 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
   offsets.mecanum=number(panel["mecanumLabelOffset"],offsets.mecanum,"mecanumLabelOffset");
   validateSceneLabelOffsets(offsets);
   const bool height_projection=flag(panel["uavHeightProjection"],true,"uavHeightProjection");
+  spec.history_max_rate_hz=ceilingHz(panel["historyMaxRateHz"],2,"historyMaxRateHz");
+  spec.history_visible=flag(panel["historyVisible"],true,"historyVisible");
+  spec.prediction_max_rate_hz=ceilingHz(panel["predictionMaxRateHz"],2,"predictionMaxRateHz");
 
   std::vector<Json::Value> ordered;std::set<std::string> namespaces;
   for(const auto& robot:value["robots"]) {
@@ -203,10 +221,15 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
   if(!value["displayRelays"].isArray())throw std::invalid_argument("displayRelays must be an array");
   for(const auto& relay:value["displayRelays"]) {
     if(!relay.isObject())throw std::invalid_argument("display relay must be an object");
-    const std::set<std::string> allowed{"source","topic","messageType"};const auto names=relay.getMemberNames();if(std::set<std::string>(names.begin(),names.end())!=allowed)throw std::invalid_argument("display relay requires exactly source/topic/messageType");
+    const std::set<std::string> allowed{"source","topic","messageType","maxRateHz","role"};
+    const auto names=relay.getMemberNames();
+    if(!relay.isMember("source")||!relay.isMember("topic")||!relay.isMember("messageType"))throw std::invalid_argument("display relay requires source, topic and messageType");
+    for(const auto& name:names)if(!allowed.count(name))throw std::invalid_argument("display relay field is not source, topic, messageType, maxRateHz or role");
     const auto source=text(relay["source"],"relay source");
     std::string kind="global";for(const auto& item:classes)if(source.compare(0,item.first.size()+1,item.first+"/")==0)kind=item.second;
-    spec.scene.relays.push_back(relayConfig(source,text(relay["topic"],"relay topic"),text(relay["messageType"],"relay messageType"),parseKind(kind)));
+    const double max_rate=relay.isMember("maxRateHz")?ceilingHz(relay["maxRateHz"],0,"maxRateHz"):0;
+    const RelayRole role=relay.isMember("role")?relayRole(relay["role"]):RelayRole::None;
+    spec.scene.relays.push_back(relayConfig(source,text(relay["topic"],"relay topic"),text(relay["messageType"],"relay messageType"),parseKind(kind),max_rate,role));
   }
   checkInstance(spec);
   return spec;

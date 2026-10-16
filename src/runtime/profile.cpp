@@ -286,6 +286,7 @@ Json::Value Change::json() const {
   result["removed"] = ids(removed);
   result["unchanged"] = ids(unchanged);
   result["scene"] = scene;
+  result["settings"] = settings;
   result["relaysAdded"] = Json::UInt64(relays_added);
   result["relaysRemoved"] = Json::UInt64(relays_removed);
   return result;
@@ -302,6 +303,9 @@ Change diffInstance(const InstanceSpec& current, const InstanceSpec& next) {
     else change.unchanged.push_back(entry.first);
   }
   change.scene = !sameOutputs(current.scene, next.scene);
+  change.settings = current.history_max_rate_hz != next.history_max_rate_hz ||
+      current.history_visible != next.history_visible ||
+      current.prediction_max_rate_hz != next.prediction_max_rate_hz;
   std::set<std::string> wanted;
   for (const auto& relay : next.scene.relays) {
     wanted.insert(relay.source);
@@ -320,7 +324,8 @@ Change diffInstance(const InstanceSpec& current, const InstanceSpec& next) {
 
 void checkInstance(const InstanceSpec& spec) {
   if (spec.robots.size() > kMaxRobots) throw std::invalid_argument("an instance has at most 256 robots");
-  if (spec.scene.relays.size() > kMaxRelays) throw std::invalid_argument("an instance has at most 64 display relays");
+  if (spec.scene.relays.size() > kMaxRelays)
+    throw std::invalid_argument("an instance has at most " + std::to_string(kMaxRelays) + " display relays");
   std::set<std::string> models, topics, sources;
   for (const auto& entry : spec.scene.relays)
     if (!sources.insert(entry.source).second) throw std::invalid_argument("display relay sources are unique");

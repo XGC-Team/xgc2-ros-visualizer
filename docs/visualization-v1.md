@@ -140,16 +140,33 @@ The panel `settings` the service reads: `markerColor`, `labelScaleInvariant`,
 `labelFontSizeMeters`, `labelFontSizePixels`, `markerOpacity`, `uavLabelOffset`,
 `scoutLabelOffset`, `mecanumLabelOffset`, `worldBoundaryMode` (`off`, `ground`,
 `walls`), `uavHeightProjection`, the history palettes `uavPalette`,
-`scoutPalette`, `mecanumPalette`, and `publication`: `markers`, `transforms`,
+`scoutPalette`, `mecanumPalette`, `historyMaxRateHz` (default 10, range
+0.1–100), `historyVisible` (default true), `predictionMaxRateHz` (default 5,
+range 0.1–100), and `publication`: `markers`, `transforms`,
 `scene` (the scene's optional outputs), `scenePaths`, `paths` (the default of
 each robot) and `groundScene` (`false` keeps Scout and Mecanum robots as
-descriptions without a scene presence). Other panel fields belong to the viewer
-and are ignored.
+descriptions without a scene presence). `historyMaxRateHz` and `historyVisible`
+limit path, AR path, scene-path, and the history `LINE_STRIP` ADD on the
+markers topic. The line uses the path ceiling and does not repeat at the
+markers channel rate. Meshes, labels, and TF keep their own rates. Hiding
+history deletes that line once. The source history ring is unchanged. Pose-axis fields are viewer settings and are ignored.
 
-`displayRelays` has at most 64 records `{source, topic, messageType}`. A relay
-copies one source topic below `/xgc/display` byte for byte; only PointCloud2,
-OccupancyGrid, Path and PoseArray are accepted. Its rate is the display channel
-of the kind row of the robot that owns the source (`global` otherwise).
+`displayRelays` has at most 128 records. Required fields are `source`, `topic`,
+and `messageType`. Optional `maxRateHz` and `role` may be null. `role` is
+`prediction`, `obstacle`, or `semantic`. Any other field, including `robotKind`,
+is rejected. PointCloud2, OccupancyGrid, Path, and PoseArray are copied byte
+for byte. Marker and MarkerArray keep namespace/id add, delete, and DELETEALL
+state. The publish rate is the minimum of the display channel, a set
+`maxRateHz`, and `predictionMaxRateHz` when the role is `prediction`. A higher
+declaration does not raise the channel rate. That rate is a message rate: one
+MarkerArray batch or one singular Marker per period. Unsent Marker ids stay
+queued and are drained in `(ns, id)` order, wrapping, so one busy id cannot
+starve the others. A positive Marker lifetime starts when the relay ingests
+the ADD and resets on every later ADD of that id, including one that repeats
+the same `header.stamp`. `header.stamp` is forwarded unchanged. A delayed send
+advertises only the time still left. Pending marker payload is capped at the
+1 MiB `maxMessageBytes` display budget. Overflow of one namespace deletes that
+namespace only.
 
 The receipt is the instance status plus `created`, `unchanged` and `changes`:
 

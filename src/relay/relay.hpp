@@ -10,7 +10,7 @@ namespace xgc2_ros_visualizer {
 class Relay {
  public:
   virtual ~Relay() = default;
-  virtual bool publish(const Rates& rates, std::chrono::steady_clock::time_point now) = 0;
+  virtual bool publish(const Rates& rates, std::chrono::steady_clock::time_point now, double prediction_max_hz, const ros::Time& ros_now) = 0;
   virtual void stop() = 0;
   virtual std::uint64_t count() const = 0;
 };

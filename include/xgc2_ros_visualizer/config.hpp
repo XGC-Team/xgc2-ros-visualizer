@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <json/json.h>
@@ -15,8 +16,12 @@ enum class RateKind : std::size_t { Fs150, Scout, Mecanum, Global, Count };
 enum class Channel : std::size_t {
   PoseTf, JointTf, Markers, Scene, ScenePath, Path, ArPath, ArIdentity,
   HeightProjection, HeightProjectionAr, TfRoot, TfStatic, WorldBoundary,
-  Readiness, DisplayPointcloud, DisplayGrid, DisplayPath, DisplayPoseArray, Count
+  Readiness, DisplayPointcloud, DisplayGrid, DisplayPath, DisplayPoseArray,
+  DisplayMarker, DisplayMarkerArray, Count
 };
+// Display-copy role. None is a missing or null declaration. The other three are
+// the roles a relay layer already uses; anything else fails validation.
+enum class RelayRole : std::uint8_t { None, Prediction, Obstacle, Semantic };
 constexpr std::size_t kKindCount = static_cast<std::size_t>(RateKind::Count);
 constexpr std::size_t kChannelCount = static_cast<std::size_t>(Channel::Count);
 const char* kindName(RateKind kind);
@@ -56,17 +61,27 @@ RateOverrides parseRateOverrides(RateKind kind, const Json::Value& value);
 Json::Value parseJson(const std::string& text);
 std::string jsonText(const Json::Value& value);
 
-// A byte-preserving copy of one source topic below /xgc/display. Its rate comes
-// from the kind row of the robot that owns the source.
+// A copy of one source topic below /xgc/display. Full-state types keep the
+// original bytes. Marker types keep ordered ns/id changes. max_rate_hz is 0
+// when the declaration omitted it. role is None when the declaration omitted it.
 struct RelayConfig {
   std::string source, topic, message_type;
-  RateKind kind;
-  Channel channel;
+  RateKind kind{RateKind::Global};
+  Channel channel{Channel::DisplayPath};
+  double max_rate_hz{0};
+  RelayRole role{RelayRole::None};
   bool operator==(const RelayConfig& other) const {
     return source == other.source && topic == other.topic && message_type == other.message_type &&
-        kind == other.kind && channel == other.channel;
+        kind == other.kind && channel == other.channel && max_rate_hz == other.max_rate_hz &&
+        role == other.role;
   }
 };
 RelayConfig relayConfig(const std::string& source, const std::string& topic,
-                      const std::string& message_type, RateKind kind);
+                      const std::string& message_type, RateKind kind,
+                      double max_rate_hz = 0, RelayRole role = RelayRole::None);
+// min(kind-row rate, maxRateHz when set, predictionMaxRateHz when role is prediction).
+// A declaration above the kind row does not raise the copy rate.
+double relayPublishHz(const Rates& rates, const RelayConfig& spec, double prediction_max_hz);
+// min(the channel rate already chosen from the kind row and member override, historyMaxRateHz).
+double historyPublishHz(double channel_hz, double history_max_hz);
 } // namespace xgc2_ros_visualizer

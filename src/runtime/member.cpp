@@ -213,6 +213,26 @@ class Member::Impl {
     (ar?ar_path_pub:path_pub).publish(message);revision=snapshot.revision;
     counted(context,ar?Channel::ArPath:Channel::Path);
   }
+  void suppressHistory(const TickContext& context,TickBatch& batch,bool markers_out) {
+    if(history_suppressed)return;
+    if(path_pub) {
+      nav_msgs::Path empty;empty.header.frame_id=profile.frame_id;empty.header.stamp=context.now;
+      path_pub.publish(empty);path_revision=0;
+    }
+    if(ar_path_pub) {
+      nav_msgs::Path empty;empty.header.frame_id=profile.frame_id;empty.header.stamp=context.now;
+      ar_path_pub.publish(empty);ar_path_revision=0;
+    }
+    if(context.scene&&profile.publication.scene_paths) {
+      batch.scene.deletions.push_back(deletion(sceneEntityPartID(profile.modelKind(),profile.id,SceneEntityPart::kPath),context.now));
+    }
+    if(markers_out&&history_line_sent) {
+      visualization_msgs::Marker gone=path_marker;
+      gone.action=visualization_msgs::Marker::DELETE;gone.points.clear();
+      batch.markers.markers.push_back(gone);history_line_sent=false;
+    }
+    history_suppressed=true;
+  }
   void appendVisuals(TickBatch& batch,const RobotState& sample,const CanonicalWorldPose& pose,const ros::Time& now,bool mesh,bool path,bool label,bool joint) {
     batch.scratch.markers.clear();batch.scratch_tf.clear();const auto& a=profile.animation;
     auto* marker_output=(mesh||path||label)?&batch.scratch:nullptr;auto* tf_output=joint?&batch.scratch_tf:nullptr;
@@ -283,6 +303,8 @@ class Member::Impl {
     const bool scene_paths=context.scene&&publication.scene_paths;
     const bool markers_out=context.markers&&publication.markers;
     auto is=[&](Channel c){return due[static_cast<std::size_t>(c)];};
+    if(!context.history_visible)suppressHistory(context,batch,markers_out);
+    else history_suppressed=false;
     if(path_pub&&is(Channel::Path))publishHistory(context,false);
     if(ar_path_pub&&is(Channel::ArPath))publishHistory(context,true);
     if(transforms&&is(Channel::PoseTf)) {
@@ -305,9 +327,24 @@ class Member::Impl {
     const bool markers=markers_out&&is(Channel::Markers),joint=transforms&&is(Channel::JointTf);
     const bool label=scene&&is(Channel::Scene)&&(!label_sent||publication.scene_paths);
     const bool path=scene_paths&&is(Channel::ScenePath);
-    if(!(markers||joint||label||path)) return;
-    appendVisuals(batch,sample,pose,now,markers,markers||path,markers||label,joint);
-    if(markers) {for(const auto& m:batch.scratch.markers)marker_ids.emplace(m.ns,m.id);batch.markers.markers.insert(batch.markers.markers.end(),batch.scratch.markers.begin(),batch.scratch.markers.end());counted(context,Channel::Markers);}
+    // Line ADD follows the path history ceiling. Meshes, labels, and TF keep
+    // their own channels. Scene path may still read the line geometry.
+    const bool history_line=markers_out&&is(Channel::Path);
+    if(!(markers||joint||label||path||history_line)) return;
+    appendVisuals(batch,sample,pose,now,markers,history_line||path,markers||label,joint);
+    if(markers||history_line) {
+      bool sent_line=false;
+      for(const auto& marker:batch.scratch.markers) {
+        const bool line=marker.type==visualization_msgs::Marker::LINE_STRIP&&
+            marker.ns==path_marker.ns&&marker.id==path_marker.id;
+        if(line) { if(!history_line) continue; sent_line=true; }
+        else if(!markers) continue;
+        marker_ids.emplace(marker.ns,marker.id);
+        batch.markers.markers.push_back(marker);
+      }
+      if(sent_line)history_line_sent=true;
+      if(markers)counted(context,Channel::Markers);
+    }
     if(joint) counted(context,Channel::JointTf);
     const auto style=profile.labelStyle();
     if(path) {appendSceneEntityPart(kind,profile.id,SceneEntityPart::kPath,batch.scratch,0,now,profile.frame_id,style,&batch.scene);counted(context,Channel::ScenePath);}
@@ -330,6 +367,7 @@ class Member::Impl {
   visualization_msgs::Marker path_marker;
   std::uint64_t path_revision{0},ar_path_revision{0};
   bool label_sent{false},ar_label_sent{false},height_present{false},height_ar_present{false};
+  bool history_line_sent{false},history_suppressed{false};
   foxglove_msgs::SceneEntity label_entity,ar_label,height_entity,height_ar_entity;
   ros::Time pose_tf_stamp,ar_tf_stamp,height_stamp,height_ar_stamp;
   std::set<std::pair<std::string,int>> marker_ids;
@@ -370,7 +408,11 @@ void Member::tick(const TickContext& context,TickBatch& batch) {
   std::array<bool,kChannelCount> due;
   for(std::size_t c=0;c<kChannelCount;++c) {
     const auto channel=static_cast<Channel>(c);
-    due[c]=robotChannel(profile.kind,channel)&&p.gates[c].take(context.now,p.overrides.get(channel,context.table.get(profile.kind,channel)));
+    const bool history=channel==Channel::Path||channel==Channel::ArPath||channel==Channel::ScenePath;
+    if(history&&!context.history_visible){due[c]=false;continue;}
+    double hz=p.overrides.get(channel,context.table.get(profile.kind,channel));
+    if(history)hz=historyPublishHz(hz,context.history_max_rate_hz);
+    due[c]=robotChannel(profile.kind,channel)&&p.gates[c].take(context.now,hz);
   }
   if(profile.hasScene()) p.tickScene(context,batch,due);
   if(profile.description.state_publisher&&due[static_cast<std::size_t>(Channel::JointTf)]) {
