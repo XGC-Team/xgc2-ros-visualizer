@@ -186,7 +186,8 @@ def run(probe):
     rpc('GET', '/v1/xrpc/policy', expected=404)
 
     # Four full-state types: subscribe without peers, forward original bytes,
-    # no replay, and stay subscribed after the display peers leave.
+    # map/grid retain one snapshot for a late viewer; path/poses do not replay.
+    # All four stay subscribed after display peers leave.
     types = [PointCloud2, OccupancyGrid, Path, PoseArray]
     type_names = ['sensor_msgs/PointCloud2', 'nav_msgs/OccupancyGrid', 'nav_msgs/Path', 'geometry_msgs/PoseArray']
     sources = ['/probe/cloud', '/probe/grid', '/probe/path', '/probe/poses']
@@ -221,8 +222,14 @@ def run(probe):
     packets(20); time.sleep(.25)
     peers = [rospy.Subscriber('/xgc/display' + s, rospy.AnyMsg, lambda m, i=i: displayed[i].append(bytes(m._buff)), queue_size=100) for i, s in enumerate(sources)]
     wait(lambda: all(peer.get_num_connections() for peer in peers), 'display publishers missing')
+    wait(lambda: len(displayed[0]) == 1 and len(displayed[1]) == 1,
+         'late display did not receive exactly one retained map/grid snapshot')
     time.sleep(.15)
-    require(not any(displayed), 'relay replayed an already-published source sample')
+    require(len(displayed[0]) == 1 and len(displayed[1]) == 1, 'snapshot replay repeated without a source update')
+    require(all(displayed[i][0] in original[i] for i in (0, 1)), 'retained snapshot changed serialized payload')
+    require(not displayed[2] and not displayed[3], 'path or poses replayed an already-published sample')
+    for samples in displayed:
+        samples.clear()
     rate_table = copy.deepcopy(default_rates)
     for key in ['display_pointcloud', 'display_grid', 'display_path', 'display_pose_array']:
         rate_table['global'][key] = 5
