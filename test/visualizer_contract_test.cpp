@@ -179,7 +179,9 @@ TEST(SceneContract, RobotKindOwnsUppercaseMarkerClassAndCanonicalNamespaceOwnsNu
     };
     const Case cases[] = {
         {RobotModelKind::kFs150, "/uav1", "UAV 1"},
+        {RobotModelKind::kFs150, "/SQ01s", "UAV 01"},
         {RobotModelKind::kScout, "/ugv2", "UGV 2"},
+        {RobotModelKind::kScout, "/scout1", "UGV 1"},
         {RobotModelKind::kMecanum, "/ugv3", "UGV 3"},
         // Mixed fleets may bind a Scout scene model to a /uavN slot. Robot
         // category, not the lowercase interface prefix, still owns UGV.
@@ -205,7 +207,9 @@ TEST(SceneContract, RobotKindOwnsUppercaseMarkerClassAndCanonicalNamespaceOwnsNu
     visualization_msgs::MarkerArray markers;
     EXPECT_THROW(applyRobotMarkerLabel(&markers, 0U, RobotModelKind::kNone, "/uav1"), std::invalid_argument);
     EXPECT_THROW(applyRobotMarkerLabel(&markers, 0U, RobotModelKind::kFs150, "uav1"), std::invalid_argument);
-    EXPECT_THROW(applyRobotMarkerLabel(&markers, 0U, RobotModelKind::kScout, "/scout1"), std::invalid_argument);
+    EXPECT_THROW(applyRobotMarkerLabel(&markers, 0U, RobotModelKind::kScout, "/scout"), std::invalid_argument);
+    EXPECT_THROW(applyRobotMarkerLabel(&markers, 0U, RobotModelKind::kFs150, "/bad_slot"), std::invalid_argument);
+    EXPECT_THROW(applyRobotMarkerLabel(&markers, 0U, RobotModelKind::kFs150, "/a/b"), std::invalid_argument);
 }
 
 TEST(SceneContract, CanonicalPosePublishesOnlyBodyAndUprightLabelTransforms) {

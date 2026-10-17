@@ -163,6 +163,39 @@ TEST(InstanceInput, FrozenModeSourceOffsetAndNumericPaletteParity) {
   value["context"]["runMode"]="physical";value["context"]["localizationOffset"]["z"]="invalid";
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
 }
+TEST(InstanceInput, NoneSimulatorUsesTheDirectPoseForBothTopics) {
+  auto value=envelope();
+  auto robot=fullRobot("uav1");
+  robot.removeMember("simulationPoseTopic");
+  value["robots"].append(robot);
+  value["context"]["scene"]["simulator"]="none";
+  const auto direct=projectInstanceInput(value);
+  const auto& admitted=direct.robots.at("uav1");
+  EXPECT_EQ(admitted.ar_pose_topic,"/uav1/pose");
+  EXPECT_EQ(admitted.pose_topic,"/uav1/pose");
+  EXPECT_EQ(admitted.ar_path_topic,"ar_path");
+  EXPECT_EQ(admitted.path_topic,"path");
+  EXPECT_DOUBLE_EQ(admitted.world_offset[2],0);
+  value["robots"][0]["simulationPoseTopic"]="/frozen/simulation/uav1";
+  const auto authored=projectInstanceInput(value);
+  EXPECT_EQ(authored.robots.at("uav1").ar_pose_topic,"/frozen/simulation/uav1");
+  EXPECT_EQ(authored.robots.at("uav1").pose_topic,"/frozen/simulation/uav1");
+  auto numbered=fullRobot("SQ01s");
+  numbered.removeMember("simulationPoseTopic");
+  value["robots"][0]=numbered;
+  value["context"]["scene"]["simulator"]="none";
+  const auto plant=projectInstanceInput(value);
+  EXPECT_EQ(plant.robots.at("SQ01s").pose_topic,"/SQ01s/pose");
+  EXPECT_EQ(plant.robots.at("SQ01s").ar_pose_topic,"/SQ01s/pose");
+  value["robots"][0]=robot;
+  value["robots"][0]["simulationPoseTopic"]="/frozen/simulation/uav1";
+  value["context"]["scene"]["simulator"]="xsim";
+  const auto xsim=projectInstanceInput(value);
+  EXPECT_EQ(xsim.robots.at("uav1").ar_pose_topic,"/frozen/simulation/uav1");
+  EXPECT_EQ(xsim.robots.at("uav1").pose_topic,"/uav1/mavros/local_position/pose");
+  value["context"]["scene"]["simulator"]="other";
+  EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+}
 TEST(InstanceInput, HeightOffScoutBindingAndDescriptionOnlyArePreserved) {
   auto value=envelope();value["settings"]["uavHeightProjection"]=false;value["robots"].append(fullRobot("uav1"));
   auto a=ground("ugv2");a["scout"]["mocapRigidBodyName"]="different";value["robots"].append(a);

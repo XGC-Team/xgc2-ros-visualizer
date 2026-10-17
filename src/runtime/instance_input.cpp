@@ -62,13 +62,14 @@ void arSource(Json::Value& profile, const Json::Value& robot, const Json::Value&
   const bool rotor = robot["profileId"] == "px4.mocap-rotor.ros1.v1";
   const auto simulator = source == "simulation" && !rotor
       ? text(context["scene"]["simulator"], "context.scene.simulator") : "";
-  if (source == "simulation" && !rotor && simulator != "xsim" && simulator != "gazebo")
+  if (source == "simulation" && !rotor && simulator != "xsim" && simulator != "gazebo" && simulator != "none")
     throw std::invalid_argument("AR requires an explicit supported simulator");
-  const bool direct = simulator == "xsim";
+  const bool direct = simulator == "xsim" || simulator == "none";
   profile["path"]["arTopic"] = "ar_path";
   if (direct) {
     const auto authored = optionalText(robot["simulationPoseTopic"], "simulationPoseTopic");
     profile["state"]["arPoseTopic"] = authored.empty() ? space + "/pose" : authored;
+    if (simulator == "none") profile["state"]["poseTopic"] = profile["state"]["arPoseTopic"];
     return;
   }
   const auto body = source == "physical" || rotor

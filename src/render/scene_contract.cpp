@@ -716,10 +716,10 @@ void applyRobotMarkerLabel(visualization_msgs::MarkerArray* markers, std::size_t
         throw std::invalid_argument("robot label markers and range must be valid");
     }
 
-    static const std::regex namespace_pattern("^/(?:uav|ugv)([0-9]+)$");
+    static const std::regex namespace_pattern("^/[A-Za-z_]+([0-9]+)[A-Za-z_]*$");
     std::smatch namespace_match;
     if (!std::regex_match(ros_namespace, namespace_match, namespace_pattern)) {
-        throw std::invalid_argument("robot label namespace must be canonical /uavN or /ugvN");
+        throw std::invalid_argument("robot label namespace must be a single-segment ROS namespace with a number");
     }
 
     const char* class_label = nullptr;
