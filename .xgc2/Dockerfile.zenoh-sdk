@@ -1,0 +1,11 @@
+# Build once per architecture and reuse this stage for source builds. The
+# runtime consumes the statically linked visualizer, not this SDK image.
+ARG FOCAL_BUILD_IMAGE=ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
+FROM ${FOCAL_BUILD_IMAGE} AS build
+COPY .xgc2/scripts/build_zenoh_sdk.sh /source/.xgc2/scripts/build_zenoh_sdk.sh
+COPY .xgc2/zenoh-c-1.8.0/ /source/.xgc2/zenoh-c-1.8.0/
+RUN CARGO_HOME=/tmp/zenoh-cargo /source/.xgc2/scripts/build_zenoh_sdk.sh \
+      --work-dir /tmp/zenoh-build --install-prefix /opt/xgc2/zenoh-sdk \
+    && rm -rf /tmp/zenoh-build /tmp/zenoh-cargo
+FROM scratch AS zenoh-sdk
+COPY --from=build /opt/xgc2/zenoh-sdk/ /opt/xgc2/zenoh-sdk/

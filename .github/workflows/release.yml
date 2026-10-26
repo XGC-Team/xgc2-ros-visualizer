@@ -78,9 +78,14 @@ jobs:
           set -euo pipefail
           test "$(awk '/^version:/ {print $2; exit}' .xgc2/product.yml)" = "$EXPECTED_VERSION"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+      - name: Cache verified Focal Zenoh C SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ros-visualizer-${{ matrix.name }}/zenoh-sdk
+          key: visualizer-zenoh-c-1.8.0-focal-fce2d76fddf4-${{ matrix.arch }}-${{ hashFiles('.xgc2/zenoh-c-1.8.0/*', '.xgc2/scripts/build_zenoh_sdk.sh') }}
       - name: Build, test and install-check Deb in controlled Noetic image
         env:
-          BUILD_IMAGE: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.0@sha256:2d0ab240a669e59dc6e86e41806041a7f5d46751c787b5cbb225b10e1faed39b
+          BUILD_IMAGE: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a
         run: |
           set -euo pipefail
           install -d .ci/build-manifests

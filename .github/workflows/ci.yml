@@ -27,6 +27,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+      - name: Cache verified Focal Zenoh C SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ros-visualizer-${{ matrix.name }}/zenoh-sdk
+          key: visualizer-zenoh-c-1.8.0-focal-fce2d76fddf4-${{ matrix.arch }}-${{ hashFiles('.xgc2/zenoh-c-1.8.0/*', '.xgc2/scripts/build_zenoh_sdk.sh') }}
       - name: Build, test and install-check Deb in controlled Noetic image
         env:
           XGC2_RUN_LONG_TESTS: ${{ matrix.arch == 'amd64' && '1' || '0' }}

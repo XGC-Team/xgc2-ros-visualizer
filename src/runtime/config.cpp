@@ -165,7 +165,7 @@ double historyPublishHz(double channel_hz, double history_max_hz) {
 RelayConfig relayConfig(const std::string& source, const std::string& topic,
                       const std::string& message_type, RateKind kind,
                       double max_rate_hz, RelayRole role) {
-  RelayConfig spec{source,topic,message_type,kind,Channel::DisplayPath,0,role};
+  RelayConfig spec{source,topic,message_type,kind,Channel::DisplayPath,0,role,"",""};
   if (!canonicalTopic(spec.source) || spec.source=="/xgc/display" || spec.source.compare(0,13,"/xgc/display/")==0 ||
       spec.topic!="/xgc/display"+spec.source)
     throw std::invalid_argument("relay needs a canonical source and its display copy");

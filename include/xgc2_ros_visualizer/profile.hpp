@@ -47,6 +47,11 @@ struct PublicationProfile {
   bool markers{true}, transforms{true}, scene{true}, scene_paths{false}, paths{true};
 };
 
+// One exact remote source. Missing entries select the existing local ROS topic.
+struct RemoteSource {
+  std::string endpoint, key;
+};
+
 // Everything the visualizer needs to draw one robot, fully resolved. A profile
 // is a value: applying a profile that differs from the applied one rebuilds the
 // resources of that robot and nothing else.
@@ -59,6 +64,7 @@ struct RobotProfile {
   DescriptionProfile description;
   std::string pose_topic;               // the one pose that drives the scene robot
   std::string ar_pose_topic;            // FS150 identity in the camera pane; empty: none
+  std::map<std::string, RemoteSource> remote_sources; // pose, arPose, state, extendedState, twist, cmdVel
   std::array<double, 3> world_offset{{0.0, 0.0, 0.0}};
   std::string frame_id{"world"};
   double label_offset{0.55};            // height of the label anchor above the robot
@@ -118,6 +124,8 @@ Change diffInstance(const InstanceSpec& current, const InstanceSpec& next);
 // Whole-instance rules a single profile cannot check: size limits, unique scene
 // models and unique path topics.
 void checkInstance(const InstanceSpec& spec);
+// Returns the single declared Zenoh listen endpoint, or empty for local-only.
+std::string remoteListen(const InstanceSpec& spec);
 // The ROS names an instance owns. Two instances of one server may not claim the
 // same name.
 std::set<std::string> claims(const InstanceSpec& spec);

@@ -1,6 +1,7 @@
 #include "instance.hpp"
 #include "member.hpp"
 #include "../relay/relay.hpp"
+#include "../transport/demand.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -32,6 +33,7 @@ struct Need {
 struct Outputs {
   ros::Publisher tf, tf_root, tf_static, standard_tf, scene, scene_ar, height, height_ar, markers, scene_ready, description_ready;
   std::array<ros::Publisher, 4> boundary;
+  std::vector<std::shared_ptr<DemandToken>> demand;
 };
 using Members = std::map<std::string, std::shared_ptr<Member>>;
 
@@ -47,11 +49,20 @@ Need needOf(const ScenePolicy& policy, const Members& members) {
   need.description_ready = !members.empty();
   return need;
 }
-Outputs advertise(const Need& need) {
+template<class Message>
+ros::Publisher advertiseDemand(ros::NodeHandle& node,const std::string& topic,int queue,bool latch,
+                               Outputs& outputs,const std::shared_ptr<SharedDemand>& demand) {
+  auto token=std::make_shared<DemandToken>(demand);outputs.demand.push_back(token);
+  ros::AdvertiseOptions options;options.init<Message>(topic,queue);options.latch=latch;
+  options.connect_cb=[token](const ros::SingleSubscriberPublisher& event){token->connect(event);};
+  options.disconnect_cb=[token](const ros::SingleSubscriberPublisher& event){token->disconnect(event);};
+  return node.advertise(options);
+}
+Outputs advertise(const Need& need,InputPool& pool,const std::shared_ptr<SharedDemand>& demand) {
   Outputs result;
-  ros::NodeHandle node;
+  ros::NodeHandle node=pool.node("/xgc/visualizer-output-demand");
   if (need.tf) {
-    result.tf = node.advertise<tf2_msgs::TFMessage>("/xgc/tf", 10, false);
+    result.tf = advertiseDemand<tf2_msgs::TFMessage>(node,"/xgc/tf",10,false,result,demand);
     result.tf_root = node.advertise<tf2_msgs::TFMessage>("/tf", 10, false);
   }
   if (need.statics) {
@@ -59,14 +70,14 @@ Outputs advertise(const Need& need) {
     result.standard_tf = node.advertise<tf2_msgs::TFMessage>("/tf", 10, false);
   }
   if (need.scene) {
-    result.scene = node.advertise<foxglove_msgs::SceneUpdate>("/xgc/scene", 1, true);
-    result.scene_ar = node.advertise<foxglove_msgs::SceneUpdate>(kIdentityArTopic, 1, true);
-    result.height = node.advertise<foxglove_msgs::SceneUpdate>(kUavHeightProjectionTopic, 1, true);
-    result.height_ar = node.advertise<foxglove_msgs::SceneUpdate>(kUavHeightProjectionArTopic, 1, true);
+    result.scene = advertiseDemand<foxglove_msgs::SceneUpdate>(node,"/xgc/scene",1,true,result,demand);
+    result.scene_ar = advertiseDemand<foxglove_msgs::SceneUpdate>(node,kIdentityArTopic,1,true,result,demand);
+    result.height = advertiseDemand<foxglove_msgs::SceneUpdate>(node,kUavHeightProjectionTopic,1,true,result,demand);
+    result.height_ar = advertiseDemand<foxglove_msgs::SceneUpdate>(node,kUavHeightProjectionArTopic,1,true,result,demand);
     const char* topics[] = {kWorldBoundaryTopic, kWorldBoundaryArTopic, kWorldBoundaryWallsTopic, kWorldBoundaryWallsArTopic};
     for (std::size_t i = 0; i < 4; ++i) result.boundary[i] = node.advertise<foxglove_msgs::SceneUpdate>(topics[i], 1, true);
   }
-  if (need.markers) result.markers = node.advertise<visualization_msgs::MarkerArray>("markers", 1, false);
+  if (need.markers) result.markers = advertiseDemand<visualization_msgs::MarkerArray>(node,"markers",1,false,result,demand);
   if (need.scene_ready) result.scene_ready = node.advertise<std_msgs::Empty>("/xgc/robot_scene/ready", 1, true);
   if (need.description_ready) result.description_ready = node.advertise<std_msgs::Empty>("/xgc/robot_descriptions/ready", 1, true);
   return result;
@@ -81,6 +92,8 @@ void publishRetraction(const Outputs& outputs, const Retraction& retraction) {
 // Retract what the outputs show, then end them. Fixed boundary layers are
 // deleted by identity; a latched topic is never cleared as a whole.
 void closeOutputs(Outputs& outputs, const Retraction& retraction, const ros::Time& now) {
+  for(auto& token:outputs.demand)token->close();
+  outputs.demand.clear();
   publishRetraction(outputs, retraction);
   for (std::size_t i = 0; i < 4; ++i) if (valid(outputs.boundary[i]) && !now.isZero()) {
     foxglove_msgs::SceneUpdate update;
@@ -154,13 +167,13 @@ class Instance::Impl {
     Retraction retraction;
     for (auto& member : retired) retraction.merge(member->retire(now));
     publishRetraction(outputs, retraction);
-    if (native_active) for (auto& entry : built) entry.second->activate(pool);
+    if (native_active) for (auto& entry : built) entry.second->activate(pool, demand);
     {
       std::lock_guard<std::mutex> lock(mutex);
       for (auto& entry : built) members[entry.first] = entry.second;
     }
     if (native_active) {
-      reconcileOutputs();
+      reconcileOutputs(pool);
       applyRelays(target.scene.relays, pool);
     }
   }
@@ -168,7 +181,7 @@ class Instance::Impl {
   // The shared publishers follow the policy and the membership. When what they
   // call for changes, they are retracted and advertised again as a whole; a
   // change of members that leaves it as it is touches no shared output.
-  void reconcileOutputs() {
+  void reconcileOutputs(InputPool& pool) {
     const Need wanted = needOf(scene, members);
     if (wanted == need) return;
     const ros::Time now = ros::Time::now();
@@ -185,7 +198,7 @@ class Instance::Impl {
       }
     }
     closeOutputs(stale, retraction, now);
-    Outputs fresh = advertise(wanted);
+    Outputs fresh = advertise(wanted,pool,demand);
     std::lock_guard<std::mutex> lock(mutex);
     outputs = fresh;
     need = wanted;
@@ -255,6 +268,7 @@ class Instance::Impl {
   Outputs outputs;
   Members members;
   std::map<std::string, RelayRecord> relays;
+  std::shared_ptr<SharedDemand> demand{std::make_shared<SharedDemand>()};
   std::array<RateGate, kChannelCount> gates;  // the global row: root TF, statics, boundary, readiness
   bool static_dirty{true}, boundary_sent{false}, scene_ready_sent{false}, description_ready_sent{false};
   double history_max_rate_hz{2};
@@ -276,8 +290,8 @@ void Instance::deactivate() { impl_->stop(); }
 void Instance::activate(InputPool& pool) {
   auto& p = *impl_;
   if (p.native_active) return;
-  for (auto& entry : p.members) entry.second->activate(pool);
-  p.reconcileOutputs();
+  for (auto& entry : p.members) entry.second->activate(pool,p.demand);
+  p.reconcileOutputs(pool);
   p.applyRelays(p.spec.scene.relays, pool);
   std::lock_guard<std::mutex> lock(p.mutex);
   p.native_active = true;

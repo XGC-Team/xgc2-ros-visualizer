@@ -404,3 +404,81 @@ TEST(InstanceRules, ClaimsAndConsistencyChecks) {
   EXPECT_THROW(checkInstance(relays),std::invalid_argument);
 }
 int main(int argc,char** argv) {testing::InitGoogleTest(&argc,argv);return RUN_ALL_TESTS();}
+
+TEST(RobotProfile, ExplicitZenohSourcesRoundTripAndRebuildOnlyTheirRobot) {
+  auto document=minimal("fs150");
+  document["state"]["arPoseTopic"]="/vrpn_client_node/uav1/pose";
+  document["state"]["sources"]["pose"]["listen"]="tcp/127.0.0.1:17447";
+  document["state"]["sources"]["pose"]["key"]="run/uav1/local_pose";
+  const auto original=parseRobotProfile("uav1",document);
+  EXPECT_EQ(original.remote_sources.at("pose").key,"run/uav1/local_pose");
+  EXPECT_EQ(parseRobotProfile("uav1",original.json()),original);
+  InstanceSpec before,after; before.robots.emplace("uav1",original); after=before;
+  document["state"]["sources"]["pose"]["key"]="run/uav1/new_pose";
+  after.robots["uav1"]=parseRobotProfile("uav1",document);
+  EXPECT_EQ(diffInstance(before,after).rebuilt,std::vector<std::string>{"uav1"});
+  document["state"]["sources"]["pose"]["key"]="run/**";
+  EXPECT_THROW(parseRobotProfile("uav1",document),std::invalid_argument);
+  document["state"]["sources"]["pose"]["key"]="run/uav1/pose";
+  document["state"]["sources"]["pose"]["listen"]="udp/127.0.0.1:17447";
+  EXPECT_THROW(parseRobotProfile("uav1",document),std::invalid_argument);
+  document["state"]["sources"]["pose"]["listen"]="tcp/127.0.0.1:17447";
+  document["state"]["sources"]["twist"]=document["state"]["sources"]["pose"];
+  EXPECT_THROW(parseRobotProfile("uav1",document),std::invalid_argument);
+}
+
+TEST(InstanceInput, RemoteDisplaySourceIsExplicitAndChangesRelayIdentity) {
+  auto value=fleet();
+  auto relay=parseJson("{\"source\":\"/uav1/alg/prediction\",\"topic\":\"/xgc/display/uav1/alg/prediction\",\"messageType\":\"nav_msgs/Path\",\"role\":\"prediction\",\"zenoh\":{\"listen\":\"tcp/127.0.0.1:17447\",\"key\":\"run/uav1/prediction\"}}");
+  value["displayRelays"].append(relay);
+  auto before=projectInstanceInput(value);
+  EXPECT_EQ(before.scene.relays.at(0).zenoh_key,"run/uav1/prediction");
+  value["displayRelays"][0]["zenoh"]["key"]="run/uav1/other";
+  const auto change=diffInstance(before,projectInstanceInput(value));
+  EXPECT_EQ(change.relays_added,1u); EXPECT_EQ(change.relays_removed,1u);
+  value["displayRelays"][0]["zenoh"]["key"]="run/*";
+  EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+}
+
+TEST(InstanceInput, EveryRemoteInputSharesOneListener) {
+  auto value=fleet();
+  auto remote=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
+  value["robots"][0]["visualization"]["profile"]["state"]["sources"]["pose"]=remote;
+  value["robots"][1]["visualization"]["profile"]["state"]["sources"]["pose"]=remote;
+  auto spec=projectInstanceInput(value);
+  EXPECT_EQ(remoteListen(spec),"tcp/192.0.2.10:17447");
+  value["robots"][1]["visualization"]["profile"]["state"]["sources"]["pose"]["listen"]="tcp/192.0.2.10:17448";
+  EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
+}
+
+TEST(InstanceInput, SettingsRobotProfilesOverrideExactlyTheNamedFrozenRobot) {
+  auto value=fleet();
+  value["settings"]["robotProfiles"]["uav1"]["state"]["sources"]["pose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
+  const auto spec=projectInstanceInput(value);
+  EXPECT_EQ(spec.robots.at("uav1").remote_sources.at("pose").key,"run/uav1/pose");
+  EXPECT_TRUE(spec.robots.at("uav2").remote_sources.empty());
+  auto changed=value;changed["settings"]["robotProfiles"]["uav1"]["state"]["sources"]["pose"]["key"]="run/uav1/other";
+  EXPECT_EQ(diffInstance(spec,projectInstanceInput(changed)).rebuilt,std::vector<std::string>{"uav1"});
+  changed=value;changed["settings"]["robotProfiles"]["/uav1"]=Json::Value(Json::objectValue);
+  EXPECT_THROW(projectInstanceInput(changed),std::invalid_argument);
+  changed=value;changed["settings"]["robotProfiles"]["absent"]=Json::Value(Json::objectValue);
+  EXPECT_THROW(projectInstanceInput(changed),std::invalid_argument);
+  changed=value;changed["settings"]["robotProfiles"]["uav1"]="bad";
+  EXPECT_THROW(projectInstanceInput(changed),std::invalid_argument);
+  changed=value;changed["settings"]["robotProfiles"]["uav1"]["bogus"]=1;
+  EXPECT_THROW(projectInstanceInput(changed),std::invalid_argument);
+  changed=value;changed["robots"][0]["visualization"].removeMember("descriptionPackage");
+  EXPECT_THROW(projectInstanceInput(changed),std::invalid_argument);
+}
+
+TEST(InstanceInput, SettingsSelectsDeclaredDisplayRelaySources) {
+  auto value=fleet();
+  value["displayRelays"].append(parseJson("{\"source\":\"/uav1/alg/prediction\",\"topic\":\"/xgc/display/uav1/alg/prediction\",\"messageType\":\"nav_msgs/Path\"}"));
+  value["settings"]["displayRelaySources"]["/uav1/alg/prediction"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/path\"}");
+  const auto spec=projectInstanceInput(value);
+  EXPECT_EQ(spec.scene.relays.at(0).zenoh_key,"run/uav1/path");
+  auto bad=value;bad["settings"]["displayRelaySources"]["/missing"]=bad["settings"]["displayRelaySources"]["/uav1/alg/prediction"];
+  EXPECT_THROW(projectInstanceInput(bad),std::invalid_argument);
+  bad=value;bad["settings"]["displayRelaySources"]["/uav1/alg/prediction"]["key"]="run/*";
+  EXPECT_THROW(projectInstanceInput(bad),std::invalid_argument);
+}

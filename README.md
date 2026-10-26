@@ -96,8 +96,9 @@ is preserved during cleanup.
 
 ## Data and publication rates
 
-All subscriptions remain active until their instance is deleted or the server
-stops, regardless of Viewer connections. ROS input queues are size 1. Callbacks
+Local ROS subscriptions remain active until their instance is deleted or the server
+stops, regardless of Viewer connections. Remote display subscriptions follow
+output demand as described below. ROS input queues are size 1. Callbacks
 update fixed latest state and fixed source-time history under short locks;
 serialization, publication, URDF parsing and network I/O occur outside those
 locks. The rate table is an immutable publication snapshot; a robot's overrides apply
@@ -253,3 +254,118 @@ Private probes are correctness/resource checks, not formal station, browser or
 scientific-mission acceptance. Source CI and Deb preparation do not imply
 production APT visibility or live station adoption; the central release
 workflow owns publication.
+
+## Explicit remote inputs
+
+A configured remote input consumes the raw ROS1 serialization bytes on one
+exact Zenoh key. There is no envelope, ROS graph discovery, local ROS publisher,
+implicit remapping, or fallback to the local topic when the key is silent. The
+sender must serialize the declared ROS1 type, connect to the visualizer's
+`listen` TCP endpoint, and disable scouting. The visualizer listens on that
+endpoint in Zenoh peer mode with multicast and gossip scouting disabled and no
+outbound connect endpoints. All remote member inputs and display relays across
+one visualizer process must use the same endpoint; they share one Zenoh
+session. This prevents a per-topic listener or session. Changing a live endpoint
+requires first removing its remote inputs. The address must be a local address
+reachable by the sender; `tcp/127.0.0.1:17447` is only a same-host example.
+
+The instance PUT `settings.robotProfiles` object accepts profile overlays keyed
+by robot namespace without its leading slash. Each value overlays the generated
+profile and then passes the existing strict profile parser; unknown robots,
+robots without descriptions, non-object entries and invalid fields are rejected.
+This settings overlay takes precedence over a Robot `visualization.profile`.
+Per-input source entries not listed retain their existing local ROS subscription. An entry is
+`{"listen":"tcp/<address>:<port>","key":"<exact-key>"}`. Wildcards and
+non-TCP endpoints are rejected. The following example keeps AR pose local while
+reading this member's local-position pose and MAVROS flight state remotely:
+
+```json
+{"robotProfiles":{"uav1":{"state":{"sources":{
+  "pose":{"listen":"tcp/192.0.2.10:17447","key":"run/s1/uav1/local_pose"},
+  "state":{"listen":"tcp/192.0.2.10:17447","key":"run/s1/uav1/state"},
+  "extendedState":{"listen":"tcp/192.0.2.10:17447","key":"run/s1/uav1/extended_state"}
+}}}}}
+```
+
+FS150 accepts `pose` and `arPose` (`geometry_msgs/PoseStamped`), `state`
+(`mavros_msgs/State`) and `extendedState` (`mavros_msgs/ExtendedState`).
+`arPose` is valid only when `state.arPoseTopic` is present. Scout/Mecanum accept
+`pose` (`geometry_msgs/PoseStamped`), `twist` (`geometry_msgs/TwistStamped`)
+and `cmdVel` (`geometry_msgs/Twist`). Existing source-time, world offset and
+history callbacks are shared with local input. Replacing or deleting a profile
+retracts its remote subscriptions. Remote member subscriptions are declared only while the member has a consumer
+of its Path/AR Path or a shared scene, transform, height or marker output;
+they are retracted when the last such consumer disconnects or the member is
+removed. A Path-only consumer requests pose; an AR Path-only consumer requests
+AR pose. A shared scene consumer requests all configured scene members. A
+missing remote sample does not cause a ROS fallback.
+
+For an already declared `displayRelays` source, the instance PUT settings can
+select its remote source through `displayRelaySources`, keyed by the exact ROS
+source topic. Unknown or undeclared sources and invalid entries are rejected.
+For example, the settings below select a declared `nav_msgs/Path` prediction:
+
+```json
+{"displayRelaySources":{"/uav1/alg/prediction":
+ {"listen":"tcp/192.0.2.10:17447","key":"run/s1/uav1/prediction"}}}
+```
+
+A direct instance PUT may alternatively add the same `{listen,key}` as `zenoh`
+on its `displayRelays` record; `settings.displayRelaySources` takes precedence.
+The `source`, output `topic` and `messageType` remain required relay fields.
+
+The usual six display message types and existing rate/coalescing policies apply.
+For a remote display relay, the Zenoh subscription exists only while the
+corresponding `/xgc/display` publisher has a ROS subscriber. Sources are not
+republished as raw ROS topics. Member messages are capped at 64 KiB and display
+messages at 1 MiB; malformed, truncated, trailing or oversized payloads are
+discarded before consumer callbacks and before any array-sized allocation.
+
+The Focal build image contains Rust 1.93.0 but no Zenoh C SDK. The product's
+builder automatically fetches the fixed Zenoh C 1.8.0 source commit, verifies
+its archive SHA-256, pins the Zenoh 1.8.0 dependency commit, and builds the
+checked-in Cargo locks using that toolchain. Downloads occur during SDK
+preparation; compilation runs offline. The verified SDK is cached in
+`<work-dir>/zenoh-sdk`; the product's CI and release jobs cache it per
+architecture and SDK recipe. The optional `--zenoh-prefix` / `XGC2_ZENOHC_PREFIX`
+is still available for a preprovisioned Focal-compatible 1.8.0 SDK. Zenoh is
+statically linked into the visualizer runtime, so the installed package does not
+need an SDK or separate Zenoh DSO. No SDK is compiled during robot deployment.
+The upstream prebuilt GNU binaries require a newer glibc than Focal.
+
+For local-swarm or another source-image build, this repository provides a
+standalone cached SDK stage. Build it once for the target architecture:
+
+```sh
+docker build -f .xgc2/Dockerfile.zenoh-sdk --target zenoh-sdk \
+  -t xgc2-visualizer-zenoh-sdk:1.8.0-focal .
+```
+
+The consuming Dockerfile may use the image as a stage and copy the build-only
+prefix into its visualizer build stage:
+
+```dockerfile
+FROM xgc2-visualizer-zenoh-sdk:1.8.0-focal AS visualizer-zenoh-sdk
+# In the existing Focal visualizer build stage:
+COPY --from=visualizer-zenoh-sdk /opt/xgc2/zenoh-sdk/ /opt/xgc2/zenoh-sdk/
+# Add /opt/xgc2/zenoh-sdk to the existing CMAKE_PREFIX_PATH before cmake.
+```
+
+Alternatively, a Dockerfile with this repository as a named BuildKit context
+can copy `.xgc2/scripts/build_zenoh_sdk.sh` and `.xgc2/zenoh-c-1.8.0/` into
+an isolated Focal build stage and run the script with `--work-dir` and
+`--install-prefix`; its output is the same prefix. Reuse that stage/cache; do
+not copy the SDK to the runtime image. The SDK recipe and its source/lock
+identity are recorded in [the build manifest](.xgc2/zenoh-c-1.8.0/README.md).
+
+The optional independent interop probe runs the actual onboarding sender against
+the receiver on two private ROS masters. In a Noetic environment with Python
+Zenoh 1.5.1 and the product sender available:
+
+```sh
+python3 test/telemetry_interop_probe.py /path/to/xgc2_ros_visualizer_node \
+  /path/to/onboard-telemetry /path/to/python-site-packages
+```
+
+It starts and stops its own masters and processes; it does not use a running
+station or experiment.

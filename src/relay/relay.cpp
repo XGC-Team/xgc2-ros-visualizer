@@ -1,6 +1,9 @@
 #include "relay.hpp"
 #include "marker_coalesce.hpp"
 #include "display_snapshot.hpp"
+#include "../transport/remote_gate.hpp"
+#include "../transport/display_wire.hpp"
+#include <boost/make_shared.hpp>
 #include <xgc2_ros_visualizer/declared_wire.hpp>
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/OccupancyGrid.h>
@@ -27,17 +30,32 @@ template<class Message> class TypedRelay final : public Relay {
     auto node=pool.node(spec.source);
     if (node.resolveName(spec.source)!=spec.source || node.resolveName(spec.topic)!=spec.topic)
       throw std::invalid_argument("remapping changed a canonical relay topic");
+    auto latest=latest_;
+    if (!spec.zenoh_endpoint.empty()) {
+      const auto type=spec.message_type;
+      remote_.reset(new RemoteGate(spec.zenoh_endpoint,spec.zenoh_key,kMaxDisplayWireBytes,
+          [latest,type](const std::uint8_t* bytes,std::size_t size) {
+            if (!validDisplayWire(type,bytes,size)) return;
+            auto message=boost::make_shared<Wire>(); message->bytes.assign(bytes,bytes+size);
+            std::lock_guard<std::mutex> lock(latest->mutex);
+            latest->message=message; ++latest->generation;
+          }));
+    }
     ros::AdvertiseOptions options;
     options.template init<Wire>(spec.topic,1);
     options.has_header=false; options.latch=snapshot_type_;
+    if(remote_) {
+      auto gate=remote_;
+      options.connect_cb=[gate](const ros::SingleSubscriberPublisher& event){gate->connect(event);};
+      options.disconnect_cb=[gate](const ros::SingleSubscriberPublisher& event){gate->disconnect(event);};
+    }
     publisher_=node.advertise(options);
-    auto latest=latest_;
     boost::function<void(const typename Wire::ConstPtr&)> callback=[latest](const typename Wire::ConstPtr& message) {
       std::lock_guard<std::mutex> lock(latest->mutex);
       latest->message=message; ++latest->generation;
     };
-    subscriber_=node.subscribe<Wire>(spec.source,1,callback,ros::VoidConstPtr(),ros::TransportHints().tcpNoDelay());
-    if (!publisher_ || !subscriber_) throw std::runtime_error("cannot activate relay: "+spec.source);
+    if(!remote_) subscriber_=node.subscribe<Wire>(spec.source,1,callback,ros::VoidConstPtr(),ros::TransportHints().tcpNoDelay());
+    if (!publisher_ || (!remote_ && !subscriber_)) throw std::runtime_error("cannot activate relay: "+spec.source);
   }
   bool publish(const Rates& rates,std::chrono::steady_clock::time_point now,double prediction_max_hz,const ros::Time&) override {
     if (!due(sent_, last_, now, relayPublishHz(rates, spec_, prediction_max_hz))) return false;
@@ -50,7 +68,7 @@ template<class Message> class TypedRelay final : public Relay {
     publisher_.publish(message); // Same immutable source shared_ptr; no payload copy/replay.
     published_message_=message; last_=now; sent_=true; ++count_;return true;
   }
-  void stop() override { subscriber_.shutdown(); publisher_.shutdown(); }
+  void stop() override { if(remote_)remote_->stop(); subscriber_.shutdown(); publisher_.shutdown(); }
   std::uint64_t count() const override { return count_.load(); }
  private:
   RelayConfig spec_;
@@ -58,6 +76,7 @@ template<class Message> class TypedRelay final : public Relay {
       std::is_same<Message,nav_msgs::OccupancyGrid>::value;
   typename Wire::ConstPtr published_message_;
   std::shared_ptr<Latest> latest_;
+  std::shared_ptr<RemoteGate> remote_;
   ros::Subscriber subscriber_;
   ros::Publisher publisher_;
   std::uint64_t published_generation_{0};
@@ -81,22 +100,46 @@ class MarkerRelay final : public Relay {
     if (node.resolveName(spec.source)!=spec.source || node.resolveName(spec.topic)!=spec.topic)
       throw std::invalid_argument("remapping changed a canonical relay topic");
     auto pending=pending_;
-    if (array_) {
-      publisher_=node.advertise<visualization_msgs::MarkerArray>(spec.topic,1,false);
+    if (!spec.zenoh_endpoint.empty()) {
+      const auto type=spec.message_type;
+      remote_.reset(new RemoteGate(spec.zenoh_endpoint,spec.zenoh_key,kMaxDisplayWireBytes,
+        [pending,type](const std::uint8_t* bytes,std::size_t size) {
+          if (!validDisplayWire(type,bytes,size)) return;
+          try {
+            ros::serialization::IStream stream(const_cast<std::uint8_t*>(bytes),static_cast<std::uint32_t>(size));
+            if(type=="visualization_msgs/MarkerArray") {
+              visualization_msgs::MarkerArray message; ros::serialization::deserialize(stream,message);
+              std::lock_guard<std::mutex> lock(pending->mutex);pending->coalescer.ingest(message,ros::Time::now());
+            } else {
+              visualization_msgs::Marker message; ros::serialization::deserialize(stream,message);
+              std::lock_guard<std::mutex> lock(pending->mutex);pending->coalescer.ingest(message,ros::Time::now());
+            }
+          } catch (const ros::serialization::StreamOverrunException&) {}
+        }));
+    }
+    ros::AdvertiseOptions options;
+    if (array_) options.init<visualization_msgs::MarkerArray>(spec.topic,1);
+    else options.init<visualization_msgs::Marker>(spec.topic,1);
+    if(remote_) {
+      auto gate=remote_;
+      options.connect_cb=[gate](const ros::SingleSubscriberPublisher& event){gate->connect(event);};
+      options.disconnect_cb=[gate](const ros::SingleSubscriberPublisher& event){gate->disconnect(event);};
+    }
+    publisher_=node.advertise(options);
+    if (!remote_ && array_) {
       boost::function<void(const visualization_msgs::MarkerArray::ConstPtr&)> callback=[pending](const visualization_msgs::MarkerArray::ConstPtr& message) {
         std::lock_guard<std::mutex> lock(pending->mutex);
         pending->coalescer.ingest(*message, ros::Time::now());
       };
       subscriber_=node.subscribe<visualization_msgs::MarkerArray>(spec.source,64,callback,ros::VoidConstPtr(),ros::TransportHints().tcpNoDelay());
-    } else {
-      publisher_=node.advertise<visualization_msgs::Marker>(spec.topic,1,false);
+    } else if (!remote_) {
       boost::function<void(const visualization_msgs::Marker::ConstPtr&)> callback=[pending](const visualization_msgs::Marker::ConstPtr& message) {
         std::lock_guard<std::mutex> lock(pending->mutex);
         pending->coalescer.ingest(*message, ros::Time::now());
       };
       subscriber_=node.subscribe<visualization_msgs::Marker>(spec.source,64,callback,ros::VoidConstPtr(),ros::TransportHints().tcpNoDelay());
     }
-    if (!publisher_ || !subscriber_) throw std::runtime_error("cannot activate relay: "+spec.source);
+    if (!publisher_ || (!remote_ && !subscriber_)) throw std::runtime_error("cannot activate relay: "+spec.source);
   }
   bool publish(const Rates& rates,std::chrono::steady_clock::time_point now,double prediction_max_hz,const ros::Time& ros_now) override {
     if (!due(sent_, last_, now, relayPublishHz(rates, spec_, prediction_max_hz))) return false;
@@ -116,11 +159,12 @@ class MarkerRelay final : public Relay {
     }
     last_=now; sent_=true; ++count_; return true;
   }
-  void stop() override { subscriber_.shutdown(); publisher_.shutdown(); }
+  void stop() override { if(remote_)remote_->stop(); subscriber_.shutdown(); publisher_.shutdown(); }
   std::uint64_t count() const override { return count_.load(); }
  private:
   RelayConfig spec_;
   std::shared_ptr<Pending> pending_;
+  std::shared_ptr<RemoteGate> remote_;
   bool array_;
   ros::Subscriber subscriber_;
   ros::Publisher publisher_;

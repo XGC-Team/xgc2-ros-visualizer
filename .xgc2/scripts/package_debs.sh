@@ -44,7 +44,7 @@ cat > "$work/debian/control" <<EOF
 Source: xgc2-ros-visualizer
 Section: misc
 Priority: optional
-Maintainer: XGC Team <867768510@qq.com>
+Maintainer: XGC Team <141200314+lxk36@users.noreply.github.com>
 
 Package: $package
 Architecture: any
@@ -62,7 +62,7 @@ Version: $version
 Section: misc
 Priority: optional
 Architecture: $arch
-Maintainer: XGC Team <867768510@qq.com>
+Maintainer: XGC Team <141200314+lxk36@users.noreply.github.com>
 Depends: $shlibs, libxgc2-xrpc2 (>= 0.2.0-1~focal), ros-noetic-roscpp, ros-noetic-roslib, ros-noetic-urdf, ros-noetic-sensor-msgs, ros-noetic-nav-msgs, ros-noetic-geometry-msgs, ros-noetic-foxglove-msgs, ros-noetic-mavros-msgs, ros-noetic-std-msgs, ros-noetic-tf2-ros, ros-noetic-visualization-msgs, ros-noetic-xgc2-fs150-description (>= 0.1.0-11), ros-noetic-xgc2-scout-description (>= 0.4.10-16), ros-noetic-xgc2-mecanum-description (>= 0.1.0-10)
 Description: XGC2 ROS1 visualization
  Run-owned visualization instances, in-process URDF transforms and persistent

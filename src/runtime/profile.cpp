@@ -1,4 +1,5 @@
 #include <xgc2_ros_visualizer/profile.hpp>
+#include "../transport/zenoh_input.hpp"
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
@@ -119,6 +120,12 @@ Json::Value RobotProfile::json() const {
     state["worldOffset"] = Json::Value(Json::arrayValue);
     for (double coordinate : world_offset) state["worldOffset"].append(coordinate);
   }
+  if (!remote_sources.empty()) {
+    for (const auto& entry : remote_sources) {
+      state["sources"][entry.first]["listen"] = entry.second.endpoint;
+      state["sources"][entry.first]["key"] = entry.second.key;
+    }
+  }
   result["frames"]["world"] = frame_id;
   result["frames"]["labelOffset"] = label_offset;
   result["path"]["topic"] = path_topic;
@@ -190,7 +197,7 @@ RobotProfile parseRobotProfile(const std::string& id, const Json::Value& documen
     throw std::invalid_argument("model.description is not canonical");
 
   const bool scene = result.hasScene();
-  const auto state = section(document, "state", {"poseTopic", "arPoseTopic", "worldOffset"});
+  const auto state = section(document, "state", {"poseTopic", "arPoseTopic", "worldOffset", "sources"});
   result.pose_topic = text(state, "poseTopic", scene ? slotVisualizationPoseTopic(result.modelKind(), result.rosNamespace()) : "", "state.poseTopic");
   if (scene != !result.pose_topic.empty() || (scene && !absoluteTopic(result.pose_topic)))
     throw std::invalid_argument("state.poseTopic is an absolute topic of a robot with a scene");
@@ -207,6 +214,23 @@ RobotProfile parseRobotProfile(const std::string& id, const Json::Value& documen
     }
     if (result.kind != RateKind::Fs150 && result.world_offset != std::array<double, 3>{{0.0, 0.0, 0.0}})
       throw std::invalid_argument("state.worldOffset applies to the FS150 AR pose");
+  }
+
+  if (present(state, "sources")) {
+    const auto& sources=state["sources"];
+    if (!scene || !sources.isObject()) throw std::invalid_argument("state.sources requires a scene robot and an object");
+    const std::set<std::string> allowed=result.kind==RateKind::Fs150
+      ? std::set<std::string>{"pose", "arPose", "state", "extendedState"}
+      : std::set<std::string>{"pose", "twist", "cmdVel"};
+    for (const auto& name:sources.getMemberNames()) {
+      const auto& source=sources[name];
+      if (!allowed.count(name) || (name=="arPose" && result.ar_pose_topic.empty()) || !source.isObject() ||
+          source.getMemberNames().size()!=2 || !source["listen"].isString() || !source["key"].isString())
+        throw std::invalid_argument("invalid state.sources entry");
+      RemoteSource remote{source["listen"].asString(),source["key"].asString()};
+      validateZenohSource(remote.endpoint,remote.key);
+      result.remote_sources.emplace(name,std::move(remote));
+    }
   }
 
   const auto frames = section(document, "frames", {"world", "labelOffset"});
@@ -322,7 +346,20 @@ Change diffInstance(const InstanceSpec& current, const InstanceSpec& next) {
   return change;
 }
 
+std::string remoteListen(const InstanceSpec& spec) {
+  std::string listen;
+  const auto add=[&listen](const std::string& value) {
+    if(value.empty()) return;
+    if(!listen.empty() && listen!=value) throw std::invalid_argument("all remote inputs must share one Zenoh listen endpoint");
+    listen=value;
+  };
+  for(const auto& robot:spec.robots) for(const auto& entry:robot.second.remote_sources) add(entry.second.endpoint);
+  for(const auto& relay:spec.scene.relays) add(relay.zenoh_endpoint);
+  return listen;
+}
+
 void checkInstance(const InstanceSpec& spec) {
+  remoteListen(spec);
   if (spec.robots.size() > kMaxRobots) throw std::invalid_argument("an instance has at most 256 robots");
   if (spec.scene.relays.size() > kMaxRelays)
     throw std::invalid_argument("an instance has at most " + std::to_string(kMaxRelays) + " display relays");

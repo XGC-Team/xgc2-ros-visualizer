@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>xgc2_ros_visualizer</name><version>0.5.0</version>
+  <name>xgc2_ros_visualizer</name><version>0.6.0</version>
   <description>Single-process ROS visualization server with Run-owned instances, per-robot profiles and per-kind publication rates with per-robot overrides.</description>
-  <maintainer email="867768510@qq.com">XGC Team</maintainer><license>MIT</license>
+  <maintainer email="141200314+lxk36@users.noreply.github.com">XGC Team</maintainer><license>MIT</license>
   <buildtool_depend>catkin</buildtool_depend>
   <depend>roscpp</depend><depend>roslib</depend><depend>urdf</depend>
   <depend>sensor_msgs</depend><depend>nav_msgs</depend><depend>geometry_msgs</depend>

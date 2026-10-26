@@ -70,10 +70,11 @@ struct RelayConfig {
   Channel channel{Channel::DisplayPath};
   double max_rate_hz{0};
   RelayRole role{RelayRole::None};
+  std::string zenoh_endpoint, zenoh_key;  // empty selects local ROS
   bool operator==(const RelayConfig& other) const {
     return source == other.source && topic == other.topic && message_type == other.message_type &&
         kind == other.kind && channel == other.channel && max_rate_hz == other.max_rate_hz &&
-        role == other.role;
+        role == other.role && zenoh_endpoint == other.zenoh_endpoint && zenoh_key == other.zenoh_key;
   }
 };
 RelayConfig relayConfig(const std::string& source, const std::string& topic,

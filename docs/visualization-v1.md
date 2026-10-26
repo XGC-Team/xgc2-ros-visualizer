@@ -67,7 +67,9 @@ Topics connect only when requested by display configuration, through normal
 ROS publisher updates. A late topic or restarted publisher uses the same
 subscription; robot status includes `input: {topic, publishers, state}`, where
 `state` is `waiting for topic` or `connected` (`not required` for description
-only robots).
+only robots). For a remote pose, `publishers` is absent and `connected` means
+a source-stamped pose is within the configured freshness window; it is not a
+Zenoh discovery or transport-liveness claim.
 
 ## Model
 
@@ -133,10 +135,10 @@ installed description; a Robot without one is not displayed. `sceneClass`
 publishes its description only. Each field of the profile comes from, in
 increasing precedence: the kind's defaults, the Robot facts (`visualization`,
 `namespace`, localization sources, the run mode and simulator of `context`),
-the panel `settings`, and the Robot's saved profile `visualization.profile`, a
+the panel `settings`, the Robot's saved profile `visualization.profile`, and `settings.robotProfiles` overlays keyed by namespace without slash, a
 profile fragment with the sections below that is merged over the rest.
 
-The panel `settings` the service reads: `markerColor`, `labelScaleInvariant`,
+The panel `settings` the service reads: `robotProfiles` (strict per-robot profile overlays), `displayRelaySources` (strict declared-source overrides; see README), `markerColor`, `labelScaleInvariant`,
 `labelFontSizeMeters`, `labelFontSizePixels`, `markerOpacity`, `uavLabelOffset`,
 `scoutLabelOffset`, `mecanumLabelOffset`, `worldBoundaryMode` (`off`, `ground`,
 `walls`), `uavHeightProjection`, the history palettes `uavPalette`,
@@ -152,7 +154,7 @@ markers channel rate. Meshes, labels, and TF keep their own rates. Hiding
 history deletes that line once. The source history ring is unchanged. Pose-axis fields are viewer settings and are ignored.
 
 `displayRelays` has at most 128 records. Required fields are `source`, `topic`,
-and `messageType`. Optional `maxRateHz` and `role` may be null. `role` is
+and `messageType`. Optional `maxRateHz` and `role` may be null. Optional `zenoh` specifies a remote source as described in the README. `role` is
 `prediction`, `obstacle`, or `semantic`. Any other field, including `robotKind`,
 is rejected. PointCloud2, OccupancyGrid, Path, and PoseArray are copied byte
 for byte. Marker and MarkerArray keep namespace/id add, delete, and DELETEALL
@@ -214,6 +216,7 @@ value whether it is written out or abbreviated. Required are `model.kind` and
 | `state.poseTopic` | The one pose that drives the scene robot | `/<ns>/mavros/local_position/pose` (FS150), `/<ns>/pose` (ground) |
 | `state.arPoseTopic` | FS150 only. Mocap pose of the camera-pane identity and AR path; empty for none | empty |
 | `state.worldOffset` | FS150 only. `[x,y,z]` added once to the AR pose | `[0,0,0]` |
+| `state.sources` | Per-input exact Zenoh `{listen,key}` selections; unlisted inputs remain local ROS. See README for types and endpoint sharing. | empty |
 | `frames.world` | The fixed frame (`world`) | `world` |
 | `frames.labelOffset` | Height of the label anchor above the robot, -10..10 m | 0.55 (`scout` 0.65, `mecanum` 0.32) |
 | `path.topic`, `path.arTopic` | Path topics below the robot namespace; `arTopic` exists with `arPoseTopic` only | `path`, `ar_path` |

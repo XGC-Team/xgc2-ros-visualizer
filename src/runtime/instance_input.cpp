@@ -1,4 +1,5 @@
 #include <xgc2_ros_visualizer/instance_input.hpp>
+#include "../transport/zenoh_input.hpp"
 #include <algorithm>
 #include <cerrno>
 #include <climits>
@@ -168,6 +169,15 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
   spec.history_visible=flag(panel["historyVisible"],true,"historyVisible");
   spec.prediction_max_rate_hz=ceilingHz(panel["predictionMaxRateHz"],2,"predictionMaxRateHz");
 
+  Json::Value profile_overrides(Json::objectValue);
+  if(panel.isMember("robotProfiles")) {
+    profile_overrides=panel["robotProfiles"];
+    if(!profile_overrides.isObject() || profile_overrides.size()>kMaxRobots)
+      throw std::invalid_argument("settings.robotProfiles must be an object with at most 256 members");
+    for(const auto& name:profile_overrides.getMemberNames())
+      if(!profile_overrides[name].isObject()) throw std::invalid_argument("settings.robotProfiles entries must be profile objects");
+  }
+  std::set<std::string> applied_overrides;
   std::vector<Json::Value> ordered;std::set<std::string> namespaces;
   for(const auto& robot:value["robots"]) {
     if(!robot.isObject())throw std::invalid_argument("frozen Robot must be an object");
@@ -217,21 +227,46 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
     // Path topics are the robot's own.
     profile["publication"]["scenePaths"]=publication.scene_paths;profile["publication"]["paths"]=publication.paths;
     if(visual.isMember("profile"))overlay(profile,visual["profile"]);
+    if(profile_overrides.isMember(name)) {
+      overlay(profile,profile_overrides[name]);
+      applied_overrides.insert(name);
+    }
     spec.robots.emplace(name,parseRobotProfile(name,profile));
   }
+  if(applied_overrides.size()!=profile_overrides.size())
+    throw std::invalid_argument("settings.robotProfiles keys must name robots with descriptions by namespace without slash");
+  Json::Value relay_overrides(Json::objectValue);
+  if(panel.isMember("displayRelaySources")) {
+    relay_overrides=panel["displayRelaySources"];
+    if(!relay_overrides.isObject() || relay_overrides.size()>kMaxRelays)
+      throw std::invalid_argument("settings.displayRelaySources must be an object with at most 128 entries");
+  }
+  std::set<std::string> applied_relays;
   if(!value["displayRelays"].isArray())throw std::invalid_argument("displayRelays must be an array");
   for(const auto& relay:value["displayRelays"]) {
     if(!relay.isObject())throw std::invalid_argument("display relay must be an object");
-    const std::set<std::string> allowed{"source","topic","messageType","maxRateHz","role"};
+    const std::set<std::string> allowed{"source","topic","messageType","maxRateHz","role","zenoh"};
     const auto names=relay.getMemberNames();
     if(!relay.isMember("source")||!relay.isMember("topic")||!relay.isMember("messageType"))throw std::invalid_argument("display relay requires source, topic and messageType");
-    for(const auto& name:names)if(!allowed.count(name))throw std::invalid_argument("display relay field is not source, topic, messageType, maxRateHz or role");
+    for(const auto& name:names)if(!allowed.count(name))throw std::invalid_argument("unknown display relay field");
     const auto source=text(relay["source"],"relay source");
     std::string kind="global";for(const auto& item:classes)if(source.compare(0,item.first.size()+1,item.first+"/")==0)kind=item.second;
     const double max_rate=relay.isMember("maxRateHz")?ceilingHz(relay["maxRateHz"],0,"maxRateHz"):0;
     const RelayRole role=relay.isMember("role")?relayRole(relay["role"]):RelayRole::None;
-    spec.scene.relays.push_back(relayConfig(source,text(relay["topic"],"relay topic"),text(relay["messageType"],"relay messageType"),parseKind(kind),max_rate,role));
+    auto config=relayConfig(source,text(relay["topic"],"relay topic"),text(relay["messageType"],"relay messageType"),parseKind(kind),max_rate,role);
+    const bool override=relay_overrides.isMember(source);
+    if (override || relay.isMember("zenoh")) {
+      const auto& remote=override ? relay_overrides[source] : relay["zenoh"];
+      if (!remote.isObject() || remote.getMemberNames().size()!=2 || !remote["listen"].isString() || !remote["key"].isString())
+        throw std::invalid_argument("relay zenoh requires listen and key");
+      config.zenoh_endpoint=remote["listen"].asString(); config.zenoh_key=remote["key"].asString();
+      validateZenohSource(config.zenoh_endpoint,config.zenoh_key);
+      if(override) applied_relays.insert(source);
+    }
+    spec.scene.relays.push_back(std::move(config));
   }
+  if(applied_relays.size()!=relay_overrides.size())
+    throw std::invalid_argument("settings.displayRelaySources keys must name declared relay sources");
   checkInstance(spec);
   return spec;
 }

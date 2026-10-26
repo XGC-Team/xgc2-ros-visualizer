@@ -1,5 +1,9 @@
 #include "member.hpp"
 #include "descriptions.hpp"
+#include "../transport/zenoh_input.hpp"
+#include "../transport/demand.hpp"
+#include "../transport/ros_wire.hpp"
+#include <boost/make_shared.hpp>
 #include <xgc2_ros_visualizer/source_history.hpp>
 #include <algorithm>
 #include <cmath>
@@ -134,12 +138,27 @@ class Member::Impl {
     ++counts[static_cast<std::size_t>(channel)];
     ++context.totals[static_cast<std::size_t>(profile.kind)][static_cast<std::size_t>(channel)];
   }
+  template<class Message, class Callback>
+  void subscribeInput(ros::NodeHandle& node, const std::string& source,
+                      const std::string& topic, Callback callback) {
+    const auto remote=profile.remote_sources.find(source);
+    if (remote==profile.remote_sources.end()) {
+      subscribers.push_back(node.subscribe<Message>(topic,1,callback,ros::VoidConstPtr(),ros::TransportHints().tcpNoDelay()));
+    } else {
+      auto gate=std::make_shared<RemoteGate>(remote->second.endpoint,remote->second.key,kMaxMemberWireBytes,
+          [callback](const std::uint8_t* bytes,std::size_t size) {
+            auto message=boost::make_shared<Message>();
+            if (decodeMemberWire(bytes,size,message.get())) callback(typename Message::ConstPtr(message));
+          });
+      remote_demand->add(source,gate);
+    }
+  }
   void subscribe(InputPool& pool) {
     const auto& a=profile.animation;const std::string space=profile.rosNamespace();
     auto data=input;auto node=pool.node(space);
     const auto kind=profile.modelKind();
     const double timeout=a.pose_timeout;
-    subscribers.push_back(node.subscribe<geometry_msgs::PoseStamped>(profile.pose_topic,1,[data,kind,timeout](const geometry_msgs::PoseStampedConstPtr& msg) {
+    subscribeInput<geometry_msgs::PoseStamped>(node,"pose",profile.pose_topic,[data,kind,timeout](const geometry_msgs::PoseStampedConstPtr& msg) {
       if (!finite(msg->pose)) return;
       PoseValue value;value.available=true;value.pose=normalized(msg->pose);value.stamp=msg->header.stamp;
       value.frame=isWorldFixedFrame(msg->header.frame_id)?1:(msg->header.frame_id=="map"||msg->header.frame_id=="/map")?2:0;
@@ -148,42 +167,51 @@ class Member::Impl {
       const auto path_pose=slotHistoryPathPose(kind,value.pose);
       std::lock_guard<std::mutex> lock(data->mutex);data->state.pose=value;
       if(record)data->path.append(value.stamp,path_pose);
-    },ros::VoidConstPtr(),ros::TransportHints().tcpNoDelay()));
+    });
     if (!profile.ar_pose_topic.empty()) {
       const auto offset=profile.world_offset;
-      subscribers.push_back(node.subscribe<geometry_msgs::PoseStamped>(profile.ar_pose_topic,1,[data,offset](const geometry_msgs::PoseStampedConstPtr& msg) {
+      subscribeInput<geometry_msgs::PoseStamped>(node,"arPose",profile.ar_pose_topic,[data,offset](const geometry_msgs::PoseStampedConstPtr& msg) {
         if (!finite(msg->pose)) return;
         PoseValue value;value.available=true;value.frame=1;value.pose=applyExperimentWorldOffsetOnce(msg->pose,offset);value.stamp=msg->header.stamp;
         if (!finite(value.pose)) return;
         std::lock_guard<std::mutex> lock(data->mutex);data->state.ar=value;
         data->ar_path.append(value.stamp,value.pose);
-      },ros::VoidConstPtr(),ros::TransportHints().tcpNoDelay()));
+      });
     }
     if (kind==RobotModelKind::kFs150) {
-      subscribers.push_back(node.subscribe<mavros_msgs::State>(space+"/mavros/state",1,[data](const mavros_msgs::StateConstPtr& msg) {
+      subscribeInput<mavros_msgs::State>(node,"state",space+"/mavros/state",[data](const mavros_msgs::StateConstPtr& msg) {
         auto stamp=msg->header.stamp.isZero()?ros::Time::now():msg->header.stamp;
         std::lock_guard<std::mutex> lock(data->mutex);data->state.armed=msg->armed;data->state.state_stamp=stamp;data->state.state_available=true;
-      }));
-      subscribers.push_back(node.subscribe<mavros_msgs::ExtendedState>(space+"/mavros/extended_state",1,[data](const mavros_msgs::ExtendedStateConstPtr& msg) {
+      });
+      subscribeInput<mavros_msgs::ExtendedState>(node,"extendedState",space+"/mavros/extended_state",[data](const mavros_msgs::ExtendedStateConstPtr& msg) {
         const auto now=ros::Time::now();std::lock_guard<std::mutex> lock(data->mutex);
         data->state.landed=msg->landed_state;data->state.extended_stamp=now;data->state.extended_available=true;
-      }));
+      });
     } else {
-      subscribers.push_back(node.subscribe<geometry_msgs::Twist>(space+"/cmd_vel",1,[data](const geometry_msgs::TwistConstPtr& msg) {
+      subscribeInput<geometry_msgs::Twist>(node,"cmdVel",space+"/cmd_vel",[data](const geometry_msgs::TwistConstPtr& msg) {
         if(!finite(*msg)) return;
         const auto now=ros::Time::now();std::lock_guard<std::mutex> lock(data->mutex);
         data->state.cmd=*msg;data->state.cmd_stamp=now;data->state.cmd_available=true;
-      }));
-      subscribers.push_back(node.subscribe<geometry_msgs::TwistStamped>(space+"/twist",1,[data](const geometry_msgs::TwistStampedConstPtr& msg) {
+      });
+      subscribeInput<geometry_msgs::TwistStamped>(node,"twist",space+"/twist",[data](const geometry_msgs::TwistStampedConstPtr& msg) {
         if(!finite(msg->twist)) return;
         const auto stamp=msg->header.stamp.isZero()?ros::Time::now():msg->header.stamp;
         const bool world=isWorldFixedFrame(msg->header.frame_id);std::lock_guard<std::mutex> lock(data->mutex);
         data->state.twist=msg->twist;data->state.twist_stamp=stamp;data->state.twist_world=world;data->state.twist_available=true;
-      }));
+      });
     }
     if (profile.publication.paths) {
-      path_pub=node.advertise<nav_msgs::Path>(space+"/"+profile.path_topic,1,true);
-      if (!profile.ar_path_topic.empty()) ar_path_pub=node.advertise<nav_msgs::Path>(space+"/"+profile.ar_path_topic,1,true);
+      auto advertisePath=[&](const std::string& topic,bool ar) {
+        ros::AdvertiseOptions options;options.init<nav_msgs::Path>(topic,1);options.latch=true;
+        if(remote_demand) {
+          auto token=std::make_shared<DemandToken>(std::make_shared<PathDemand>(remote_demand,ar));path_demand.push_back(token);
+          options.connect_cb=[token](const ros::SingleSubscriberPublisher& event){token->connect(event);};
+          options.disconnect_cb=[token](const ros::SingleSubscriberPublisher& event){token->disconnect(event);};
+        }
+        return node.advertise(options);
+      };
+      path_pub=advertisePath(space+"/"+profile.path_topic,false);
+      if (!profile.ar_path_topic.empty()) ar_path_pub=advertisePath(space+"/"+profile.ar_path_topic,true);
     }
   }
   void motion(const RobotState& sample,const geometry_msgs::Pose& pose,const ros::Time& now,double* forward,double* lateral,double* angular,bool* hint) const {
@@ -362,6 +390,9 @@ class Member::Impl {
   std::unique_ptr<MecanumUgvVisualizer> mecanum;
   SceneLabelOffsets label_offsets;
   std::vector<ros::Subscriber> subscribers;
+  std::shared_ptr<MemberDemand> remote_demand;
+  std::shared_ptr<SharedDemand> shared_demand;
+  std::vector<std::shared_ptr<DemandToken>> path_demand;
   ros::Publisher path_pub,ar_path_pub;
   nav_msgs::Path path_message,ar_path_message;
   visualization_msgs::Marker path_marker;
@@ -394,10 +425,11 @@ Shown Member::shown() const {
   return result;
 }
 
-void Member::activate(InputPool& pool) {
+void Member::activate(InputPool& pool, const std::shared_ptr<SharedDemand>& demand) {
   auto& p=*impl_;if(p.activated) throw std::logic_error("member already activated");
   p.activated=true;
   try {
+    if(!p.profile.remote_sources.empty()) {p.remote_demand=std::make_shared<MemberDemand>();p.shared_demand=demand;demand->add(p.remote_demand);}
     p.description->activate(pool);
     if(p.profile.hasScene()) p.subscribe(pool);
   } catch(...) {retire(ros::Time());throw;}
@@ -447,6 +479,11 @@ void Member::resetOutputs() {
 Retraction Member::retire(const ros::Time& now) {
   auto& p=*impl_;Retraction result=retraction(now);
   for(auto& subscriber:p.subscribers)subscriber.shutdown();
+  for(auto& token:p.path_demand) token->close();
+  p.path_demand.clear();
+  if(p.remote_demand) {p.shared_demand->remove(p.remote_demand);p.remote_demand->stop();}
+  p.remote_demand.reset();
+  p.shared_demand.reset();
   for(auto* publisher:{&p.path_pub,&p.ar_path_pub}) if(*publisher) {
     nav_msgs::Path empty;empty.header.frame_id=p.profile.frame_id;empty.header.stamp=now;publisher->publish(empty);
   }
@@ -454,6 +491,7 @@ Retraction Member::retire(const ros::Time& now) {
   resetOutputs();
   p.description->stop();
   p.subscribers.clear();
+  p.activated=false;
   return result;
 }
 
@@ -467,6 +505,12 @@ Json::Value Member::peerStatus() const {
   const auto& p=*impl_;
   Json::Value result(Json::objectValue);
   if (!p.profile.hasScene()) { result["state"]="not required"; return result; }
+  if (p.profile.remote_sources.count("pose")) {
+    std::lock_guard<std::mutex> lock(p.input->mutex);
+    result["topic"]=p.profile.pose_topic;
+    result["state"]=(p.input->state.pose.available && fresh(p.input->state.pose.stamp,ros::Time::now(),p.profile.animation.pose_timeout))?"connected":"waiting for topic";
+    return result;
+  }
   const auto publishers=p.subscribers.empty()?0:p.subscribers.front().getNumPublishers();
   result["topic"]=p.profile.pose_topic;
   result["publishers"]=publishers;

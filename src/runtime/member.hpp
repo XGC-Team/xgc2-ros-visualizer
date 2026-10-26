@@ -17,6 +17,7 @@
 #include "input_pool.hpp"
 
 namespace xgc2_ros_visualizer {
+class SharedDemand;
 
 // Cumulative publications by kind and channel, monotonic for the life of an instance.
 using Counters = std::array<std::array<std::atomic<std::uint64_t>, kChannelCount>, kKindCount>;
@@ -85,7 +86,7 @@ class Member {
   const RobotProfile& profile() const;
   const RateOverrides& overrides() const;
   void setOverrides(const RateOverrides& overrides);
-  void activate(InputPool& pool);
+  void activate(InputPool& pool, const std::shared_ptr<SharedDemand>& demand);
   void tick(const TickContext& context, TickBatch& batch);
   Shown shown() const;
   void appendFixed(std::vector<geometry_msgs::TransformStamped>* output) const;
