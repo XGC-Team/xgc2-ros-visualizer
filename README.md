@@ -111,8 +111,8 @@ scheduler immediately, including when all rates are 0.1 Hz.
 | Each kind `joint_tf`, `markers` | 30 Hz | `/xgc/tf` visual rotor/wheel TF; optional `/markers` geometry/path/labels |
 | Each kind `scene`, `scene_path`, `path`, `ar_path`, `ar_identity` | 10 Hz | `/xgc/scene` labels/optional paths, namespace Path topics, `/xgc/scene_ar` |
 | FS150 `height_projection`, `height_projection_ar` | 10 Hz | `/xgc/uav_height_projection` and `/xgc/uav_height_projection_ar` |
-| Global `tf_root` | 30 Hz | Standard `/tf` world root |
-| Global `tf_static`, `world_boundary`, `readiness` | 1 Hz | Latched fixed aliases/URDF TF, world boundary layers and ready events |
+| Global `tf_root` | 30 Hz | Retained for rate-table compatibility; no dynamic root is published |
+| Global `tf_static`, `world_boundary`, `readiness` | 1 Hz | Latched `world → xgc_origin`, fixed aliases/URDF TF, world boundary layers and ready events |
 | Global `joint_tf` | 30 Hz | In-process URDF joint TF for descriptions without a matching concrete scene kind |
 | All kinds `display_pointcloud`, `display_grid`, `display_path`, `display_pose_array` | 10 Hz | Original serialized data under `/xgc/display` |
 | All kinds `display_marker`, `display_marker_array` | 10 Hz | Coalesced Marker / MarkerArray copies under `/xgc/display` |

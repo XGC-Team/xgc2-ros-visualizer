@@ -42,6 +42,8 @@ install(DIRECTORY include/${PROJECT_NAME}/ DESTINATION ${CATKIN_PACKAGE_INCLUDE_
 install(FILES process-definitions/xgc2-ros-visualizer.json
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/process-definitions)
 if(CATKIN_ENABLE_TESTING)
+  add_test(NAME tf_origin COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/tf_origin_probe.py $<TARGET_FILE:xgc2_ros_visualizer_node>)
+  set_tests_properties(tf_origin PROPERTIES LABELS ros TIMEOUT 60)
   add_test(NAME start_order COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/start_order_probe.py $<TARGET_FILE:xgc2_ros_visualizer_node>)
   set_tests_properties(start_order PROPERTIES LABELS ros TIMEOUT 60)
   add_test(NAME peer_down COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/start_order_probe.py $<TARGET_FILE:xgc2_ros_visualizer_node> --long)

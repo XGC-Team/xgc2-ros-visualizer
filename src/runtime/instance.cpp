@@ -32,7 +32,7 @@ struct Need {
   }
 };
 struct Outputs {
-  ros::Publisher tf, tf_root, tf_static, standard_tf, scene, scene_ar, height, height_ar, markers, scene_ready, description_ready;
+  ros::Publisher tf, tf_static, standard_tf, scene, scene_ar, height, height_ar, markers, scene_ready, description_ready;
   std::array<ros::Publisher, 4> boundary;
   std::vector<std::shared_ptr<DemandToken>> demand;
 };
@@ -64,7 +64,6 @@ Outputs advertise(const Need& need,InputPool& pool,const std::shared_ptr<SharedD
   ros::NodeHandle node=pool.node("/xgc/visualizer-output-demand");
   if (need.tf) {
     result.tf = advertiseDemand<tf2_msgs::TFMessage>(node,"/xgc/tf",10,false,result,demand);
-    result.tf_root = node.advertise<tf2_msgs::TFMessage>("/tf", 10, false);
   }
   if (need.statics) {
     result.tf_static = node.advertise<tf2_msgs::TFMessage>("/tf_static", 1, true);
@@ -101,7 +100,7 @@ void closeOutputs(Outputs& outputs, const Retraction& retraction, const ros::Tim
     update.deletions.push_back(i < 2 ? worldBoundaryDeletion(now) : worldWallsDeletion(now));
     outputs.boundary[i].publish(update);
   }
-  for (auto* publisher : {&outputs.tf, &outputs.tf_root, &outputs.tf_static, &outputs.standard_tf, &outputs.scene,
+  for (auto* publisher : {&outputs.tf, &outputs.tf_static, &outputs.standard_tf, &outputs.scene,
                           &outputs.scene_ar, &outputs.height, &outputs.height_ar, &outputs.markers,
                           &outputs.scene_ready, &outputs.description_ready})
     publisher->shutdown();
@@ -414,14 +413,8 @@ void Instance::tick(const Rates& table, const ros::Time& now) {
     }
   }
   std::array<bool, kChannelCount> global{};
-  for (Channel channel : {Channel::TfRoot, Channel::TfStatic, Channel::WorldBoundary, Channel::Readiness})
+  for (Channel channel : {Channel::TfStatic, Channel::WorldBoundary, Channel::Readiness})
     global[static_cast<std::size_t>(channel)] = p.gates[static_cast<std::size_t>(channel)].take(now, table.get(RateKind::Global, channel));
-  if (valid(o.tf_root) && global[static_cast<std::size_t>(Channel::TfRoot)]) {
-    tf2_msgs::TFMessage root;
-    root.transforms.push_back(worldFixedFrameRoot(kWorld, now));
-    o.tf_root.publish(root);
-    counted(RateKind::Global, Channel::TfRoot);
-  }
   if (valid(o.tf_static) && p.static_dirty && global[static_cast<std::size_t>(Channel::TfStatic)]) {
     tf2_msgs::TFMessage statics;
     statics.transforms.push_back(algorithmOverlayFrameAlias(kWorld, ros::Time(0)));

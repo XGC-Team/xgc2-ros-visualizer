@@ -75,6 +75,7 @@ if [[ "$XGC2_RUN_SOURCE_TESTS" == 1 ]]; then
   cmake --build /work/build --target tests -j1
   cmake --build /work/build --target run_tests -j1
   catkin_test_results /work/build/test_results
+  python3 /source/test/tf_origin_probe.py /work/build/devel/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node
   python3 /source/test/zenoh_profile_probe.py \
     /work/build/devel/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node \
     /work/build/devel/lib/xgc2_ros_visualizer/zenoh_test_peer
