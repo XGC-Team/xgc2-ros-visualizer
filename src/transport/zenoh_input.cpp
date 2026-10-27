@@ -62,6 +62,11 @@ void validateZenohSource(const std::string& endpoint,const std::string& key) {
   z_view_keyexpr_t expression;
   if(z_view_keyexpr_from_str(&expression,key.c_str())<0) throw std::invalid_argument("invalid Zenoh key");
 }
+std::shared_ptr<ZenohListener> ZenohListener::open(const std::string& endpoint) {
+  // Reuse the same endpoint validation and session registry as subscriptions.
+  validateZenohSource(endpoint,"xgc/listener-validation");
+  return std::shared_ptr<ZenohListener>(new ZenohListener(sessionFor(endpoint)));
+}
 struct ZenohInput::Impl {
   std::shared_ptr<Session> session;
   z_owned_subscriber_t subscriber;

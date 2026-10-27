@@ -33,25 +33,6 @@ def main(binary, peer_binary):
             port = s.getsockname()[1]
         endpoint = 'tcp/127.0.0.1:' + str(port)
         keys = ['run/uav1/pose', 'run/uav1/ar', 'run/uav1/state', 'run/uav1/extended', 'run/uav1/prediction', 'run/ugv1/pose', 'run/ugv1/twist', 'run/ugv1/cmd_vel']
-        peer = subprocess.Popen([peer_binary, str(port)] + keys, stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=probe.logfile, text=True, bufsize=1)
-        require(peer.stdout.readline().strip() == 'READY', 'Zenoh peer failed to start')
-        peer2 = subprocess.Popen([peer_binary, str(port), 'run/uav2/pose'], stdin=subprocess.PIPE,
-                                 stdout=subprocess.PIPE, stderr=probe.logfile, text=True, bufsize=1)
-        require(peer2.stdout.readline().strip() == 'READY', 'second Zenoh peer failed to start')
-        def command2(cmd):
-            peer2.stdin.write(cmd + '\n'); peer2.stdin.flush()
-            return peer2.stdout.readline().strip()
-
-        def command(cmd):
-            peer.stdin.write(cmd + '\n'); peer.stdin.flush()
-            line = peer.stdout.readline().strip()
-            require(bool(line), 'Zenoh peer closed')
-            return line
-        def matched(index):
-            return command('status ' + str(index)) == 'STATUS 0 1'
-        def put(index, payload):
-            require(command('put %d %s' % (index, payload)) == 'PUT 0', 'Zenoh put failed')
         probe.start_server(world_clock='wall')
         item = robot('uav1')
         sources = {name: dict(listen=endpoint, key=keys[index]) for index, name in enumerate(('pose', 'arPose', 'state', 'extendedState'))}
@@ -71,6 +52,30 @@ def main(binary, peer_binary):
                 if 'ugv1/' in transform.child_frame_id and 'front_left_wheel_link' in transform.child_frame_id:
                     wheel.append(transform.transform.rotation.z)
         probe.rpc('PUT', '/v1/instances/zenoh', instance([item, item2, ground], [relay], settings=dict(robotProfiles=overrides, displayRelaySources=relay_sources)))
+        def listener_open():
+            with socket.socket() as sock:
+                sock.settimeout(.2)
+                return sock.connect_ex(('127.0.0.1', port)) == 0
+        require(listener_open(), 'configured listener was not opened before consumers')
+        peer = subprocess.Popen([peer_binary, str(port)] + keys, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=probe.logfile, text=True, bufsize=1)
+        require(peer.stdout.readline().strip() == 'READY', 'Zenoh peer failed to start')
+        peer2 = subprocess.Popen([peer_binary, str(port), 'run/uav2/pose'], stdin=subprocess.PIPE,
+                                 stdout=subprocess.PIPE, stderr=probe.logfile, text=True, bufsize=1)
+        require(peer2.stdout.readline().strip() == 'READY', 'second Zenoh peer failed to start')
+        def command2(cmd):
+            peer2.stdin.write(cmd + '\n'); peer2.stdin.flush()
+            return peer2.stdout.readline().strip()
+
+        def command(cmd):
+            peer.stdin.write(cmd + '\n'); peer.stdin.flush()
+            line = peer.stdout.readline().strip()
+            require(bool(line), 'Zenoh peer closed')
+            return line
+        def matched(index):
+            return command('status ' + str(index)) == 'STATUS 0 1'
+        def put(index, payload):
+            require(command('put %d %s' % (index, payload)) == 'PUT 0', 'Zenoh put failed')
         time.sleep(.3)
         for index in range(8):
             require(not matched(index), 'remote input subscribed without a display consumer')
@@ -155,6 +160,7 @@ def main(binary, peer_binary):
             wait(lambda index=index: not matched(index), 'ground input survives last display consumer', 8)
         wait(lambda: command2('status 0') == 'STATUS 0 0', 'second input survives last display consumer', 8)
         probe.rpc('DELETE', '/v1/instances/zenoh')
+        wait(lambda: not listener_open(), 'listener survives last instance deletion', 8)
         require(probe.stop() == 0, 'server Stop failed')
     except Exception:
         print('PRIVATE PROCESS LOG:\n' + probe.log_tail(), file=sys.stderr)

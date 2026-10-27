@@ -2,6 +2,7 @@
 #include "member.hpp"
 #include "../relay/relay.hpp"
 #include "../transport/demand.hpp"
+#include "../transport/zenoh_input.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -137,6 +138,12 @@ class Instance::Impl {
   // Make the actual state equal to `target`. Prepared members are built first, so
   // a profile that cannot be loaded changes nothing.
   void transition(const InstanceSpec& target, InputPool& pool) {
+    const auto endpoint=remoteListen(target);
+    // Bind once at configuration time, independently of ROS consumers. The
+    // demand gates still declare only the keys with downstream consumers.
+    auto next_listener=listener;
+    if(endpoint!=listener_endpoint)
+      next_listener=endpoint.empty()?nullptr:ZenohListener::open(endpoint);
     Members built;
     for (const auto& entry : target.robots) {
       const auto found = members.find(entry.first);
@@ -176,6 +183,8 @@ class Instance::Impl {
       reconcileOutputs(pool);
       applyRelays(target.scene.relays, pool);
     }
+    listener=std::move(next_listener);
+    listener_endpoint=endpoint;
   }
 
   // The shared publishers follow the policy and the membership. When what they
@@ -249,8 +258,12 @@ class Instance::Impl {
     for (auto& entry : retired) retraction.merge(entry.second->retire(now));
     closeOutputs(stale, retraction, now);
     for (auto& entry : stopped) entry.second.relay->stop();
+    listener.reset();
+    listener_endpoint.clear();
   }
 
+  std::shared_ptr<ZenohListener> listener;
+  std::string listener_endpoint;
   std::string id;
   std::atomic<bool> active{true};
   // The actual, applied state; the control thread alone writes it.

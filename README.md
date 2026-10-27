@@ -265,7 +265,11 @@ sender must serialize the declared ROS1 type, connect to the visualizer's
 endpoint in Zenoh peer mode with multicast and gossip scouting disabled and no
 outbound connect endpoints. All remote member inputs and display relays across
 one visualizer process must use the same endpoint; they share one Zenoh
-session. This prevents a per-topic listener or session. Changing a live endpoint
+session. The configured listener is opened when the instance is applied and
+remains available even with no output consumers, so sender connections do not
+depend on display demand. Exact-key subscriptions still exist only while their
+outputs have consumers. The listener closes when the last instance using it is
+removed. This prevents a per-topic listener or session. Changing a live endpoint
 requires first removing its remote inputs. The address must be a local address
 reachable by the sender; `tcp/127.0.0.1:17447` is only a same-host example.
 

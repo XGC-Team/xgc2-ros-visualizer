@@ -85,10 +85,6 @@ def main(binary, sender_root, sdk_site):
             for transform in message.transforms:
                 if 'uav1/' in transform.child_frame_id and 'rotor' in transform.child_frame_id:
                     rotors.append(round(transform.transform.rotation.z, 4))
-        path_sub = rospy.Subscriber('/uav1/path', Path, paths.append, queue_size=1)
-        ar_sub = rospy.Subscriber('/uav1/ar_path', Path, ar_paths.append, queue_size=1)
-        pred_sub = rospy.Subscriber('/xgc/display/uav1/alg/prediction', Path, predictions.append, queue_size=1)
-        tf_sub = rospy.Subscriber('/xgc/tf', TFMessage, read_tf, queue_size=10)
         probe.rpc('PUT', '/v1/instances/interop', instance([item], [relay], settings=settings))
         mappings = [('/uav1/mavros/local_position/pose', 'geometry_msgs/PoseStamped'),
                     ('/uav1/pose', 'geometry_msgs/PoseStamped'), ('/uav1/mavros/state', 'mavros_msgs/State'),
@@ -100,6 +96,14 @@ def main(binary, sender_root, sdk_site):
         sender = subprocess.Popen([sys.executable, '-m', 'onboard_telemetry', '--config-json', json.dumps(config)], env=env,
                                   stdout=probe.logfile, stderr=probe.logfile, start_new_session=True)
         children.append(sender)
+        # The sender must connect before any visualizer output is subscribed.
+        # A client-mode Zenoh 1.5.1 sender exits immediately if there is no listener.
+        time.sleep(1.5)
+        require(sender.poll() is None, 'sender could not connect without a display consumer')
+        path_sub = rospy.Subscriber('/uav1/path', Path, paths.append, queue_size=1)
+        ar_sub = rospy.Subscriber('/uav1/ar_path', Path, ar_paths.append, queue_size=1)
+        pred_sub = rospy.Subscriber('/xgc/display/uav1/alg/prediction', Path, predictions.append, queue_size=1)
+        tf_sub = rospy.Subscriber('/xgc/tf', TFMessage, read_tf, queue_size=10)
         receipt = os.path.join(probe.work, 'prediction-wire.hex')
         pub = subprocess.Popen([sys.executable, __file__, '--emit', receipt], env=env,
                                stdout=probe.logfile, stderr=probe.logfile, start_new_session=True)
