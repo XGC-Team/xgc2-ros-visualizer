@@ -224,7 +224,7 @@ RobotProfile parseRobotProfile(const std::string& id, const Json::Value& documen
       : std::set<std::string>{"pose", "twist", "cmdVel"};
     for (const auto& name:sources.getMemberNames()) {
       const auto& source=sources[name];
-      if (!allowed.count(name) || (name=="arPose" && result.ar_pose_topic.empty()) || !source.isObject() ||
+      if (!allowed.count(name) || !source.isObject() ||
           source.getMemberNames().size()!=2 || !source["listen"].isString() || !source["key"].isString())
         throw std::invalid_argument("invalid state.sources entry");
       RemoteSource remote{source["listen"].asString(),source["key"].asString()};
@@ -240,10 +240,11 @@ RobotProfile parseRobotProfile(const std::string& id, const Json::Value& documen
 
   const auto path = section(document, "path", {"topic", "arTopic"});
   result.path_topic = text(path, "topic", "path", "path.topic");
-  result.ar_path_topic = text(path, "arTopic", result.ar_pose_topic.empty() ? "" : "ar_path", "path.arTopic");
+  const bool has_ar_source = !result.ar_pose_topic.empty() || result.remote_sources.count("arPose") != 0;
+  result.ar_path_topic = text(path, "arTopic", has_ar_source ? "ar_path" : "", "path.arTopic");
   if (!relativeName(result.path_topic) || (!result.ar_path_topic.empty() && !relativeName(result.ar_path_topic)) ||
-      result.ar_pose_topic.empty() != result.ar_path_topic.empty() || result.path_topic == result.ar_path_topic)
-    throw std::invalid_argument("path topics are distinct relative names; arTopic exists with arPoseTopic only");
+      has_ar_source == result.ar_path_topic.empty() || result.path_topic == result.ar_path_topic)
+    throw std::invalid_argument("path topics are distinct relative names; arTopic requires a local or remote AR pose source");
 
   const auto labels = section(document, "labels", {"color", "scaleInvariant", "fontSize", "opacity"});
   result.labels.color = text(labels, "color", result.labels.color, "labels.color");

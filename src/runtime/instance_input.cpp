@@ -42,10 +42,6 @@ RelayRole relayRole(const Json::Value& value) {
   if(role=="semantic")return RelayRole::Semantic;
   throw std::invalid_argument("relay role must be prediction, obstacle or semantic");
 }
-std::string trim(std::string value) {
-  const auto first=value.find_first_not_of(" \t\r\n");if(first==std::string::npos)return "";
-  return value.substr(first,value.find_last_not_of(" \t\r\n")-first+1);
-}
 // Objects merge member by member; every other value replaces.
 void overlay(Json::Value& target,const Json::Value& source) {
   if(!source.isObject()||!target.isObject()) {target=source;return;}
@@ -54,40 +50,108 @@ void overlay(Json::Value& target,const Json::Value& source) {
     else target[name]=source[name];
   }
 }
+// The display roster is deliberately projected; source-specific parameters
+// remain in the frozen Session row, selected by the stable slot identity.
+const Json::Value* frozenRobot(const Json::Value& robot,const Json::Value& context) {
+  if(!robot["slotId"].isString()||robot["slotId"].asString().empty())
+    throw std::invalid_argument("AR requires a frozen Robot slotId");
+  if(!context["robots"].isArray())
+    throw std::invalid_argument("AR requires the frozen Session Robots");
+  const Json::Value* found=nullptr;
+  for(const auto& candidate:context["robots"]) {
+    if(!candidate.isObject()||candidate["slotId"]!=robot["slotId"])continue;
+    if(found||!candidate["namespace"].isString()||candidate["namespace"]!=robot["namespace"])
+      throw std::invalid_argument("display Robot does not uniquely match frozen slot");
+    found=&candidate;
+  }
+  if(!found)throw std::invalid_argument("AR requires a frozen Robot slot");
+  return found;
+}
+std::string frozenProfileParameter(const Json::Value* robot,const char* name) {
+  if(!robot||!(*robot)["profile"].isObject()||!(*robot)["profile"]["parameters"].isObject())return "";
+  return optionalText((*robot)["profile"]["parameters"][name],std::string("profile.parameters.")+name);
+}
+std::string frozenProfileID(const Json::Value* robot) {
+  if(!robot||!(*robot)["profile"].isObject())return "";
+  return optionalText((*robot)["profile"]["id"],"profile.id");
+}
 void arSource(Json::Value& profile, const Json::Value& robot, const Json::Value& context) {
   const auto mode = text(context["runMode"], "context.runMode");
   const auto source = mode == "hybrid" ? text(robot["hybridSource"], "Robot hybridSource") : mode;
   if (source != "physical" && source != "simulation")
     throw std::invalid_argument("AR requires an explicit physical or simulation source");
-  const auto space = robot["namespace"].asString();
-  const bool rotor = robot["profileId"] == "px4.mocap-rotor.ros1.v1";
+  const auto* frozen = frozenRobot(robot,context);
+  const auto profile_id = frozenProfileID(frozen);
+  const bool rotor = profile_id == "px4.mocap-rotor.ros1.v1";
   const auto simulator = source == "simulation" && !rotor
       ? text(context["scene"]["simulator"], "context.scene.simulator") : "";
   if (source == "simulation" && !rotor && simulator != "xsim" && simulator != "gazebo" && simulator != "none")
     throw std::invalid_argument("AR requires an explicit supported simulator");
-  const bool direct = simulator == "xsim" || simulator == "none";
-  profile["path"]["arTopic"] = "ar_path";
-  if (direct) {
-    const auto authored = optionalText(robot["simulationPoseTopic"], "simulationPoseTopic");
-    profile["state"]["arPoseTopic"] = authored.empty() ? space + "/pose" : authored;
-    if (simulator == "none") profile["state"]["poseTopic"] = profile["state"]["arPoseTopic"];
+  if (!profile["state"].isNull() && !profile["state"].isObject())
+    throw std::invalid_argument("state must be an object");
+  if (!profile["path"].isObject())
+    throw std::invalid_argument("path must be an object");
+  if (profile["state"].isNull()) profile["state"] = Json::Value(Json::objectValue);
+  auto& state = profile["state"];
+  // An explicitly selected remote AR stream is already the declared display
+  // source. It is not a local VRPN subscription, it needs no invented tracker,
+  // and it owns its coordinate transformation.
+  const bool remote = state["sources"].isObject() && state["sources"].isMember("arPose");
+  if (remote) {
+    state.removeMember("arPoseTopic");
+    profile["path"]["arTopic"] = "ar_path";
     return;
   }
-  const auto body = source == "physical" || rotor
-      ? text(robot["px4"]["mocapRigidBodyName"], "px4.mocapRigidBodyName") : space.substr(1);
-  if (body.empty() || body.find('/') != std::string::npos)
-    throw std::invalid_argument("AR requires a single rigid body name");
-  profile["state"]["arPoseTopic"] = "/vrpn_client_node" +
-      (mode == "hybrid" ? "_" + source : "") + "/" + body + "/pose";
+  // A saved explicit local AR topic remains authoritative, including an empty
+  // value that intentionally disables AR for this member.
+  const bool explicit_topic = state.isMember("arPoseTopic");
+  const auto topic = explicit_topic ? text(state["arPoseTopic"], "state.arPoseTopic") : "";
+  if (explicit_topic && topic.empty()) return;
+  profile["path"]["arTopic"] = "ar_path";
+  if (explicit_topic) {
+    state["arPoseTopic"] = topic;
+  } else if (simulator == "xsim" || simulator == "none") {
+    // The frozen localization topic is the authored plant pose. A missing one
+    // is an identity error, not a namespace-derived topic.
+    const auto authored = frozenProfileParameter(frozen, "localization_pose_topic");
+    if (authored.empty())
+      throw std::invalid_argument("AR requires a frozen localization_pose_topic");
+    state["arPoseTopic"] = authored;
+    if (simulator == "none") state["poseTopic"] = authored;
+    return;
+  } else if (source == "physical" || rotor) {
+    const auto frozen_topic = frozenProfileParameter(frozen, "localization_pose_topic");
+    const auto frozen_root = frozenProfileParameter(frozen, "mocap_source_root");
+    const auto frozen_body = frozenProfileParameter(frozen, "mocap_rigid_body");
+    if (!frozen_topic.empty()) {
+      state["arPoseTopic"] = frozen_topic;
+    } else if (!frozen_root.empty() && !frozen_body.empty()) {
+      if (frozen_root.front() != '/' || frozen_root.back() == '/' || frozen_body.find('/') != std::string::npos)
+        throw std::invalid_argument("AR requires an explicit mocap root and rigid body name");
+      state["arPoseTopic"] = frozen_root + "/" + frozen_body + "/pose";
+    } else {
+      throw std::invalid_argument("AR requires a frozen localization_pose_topic or mocap_source_root/mocap_rigid_body");
+    }
+  } else {
+    // Gazebo uses the frozen tracker identity; never fall back to a slot name.
+    const auto tracker = frozenProfileParameter(frozen, "mocap_rigid_body");
+    if (tracker.empty() || tracker.find('/') != std::string::npos)
+      throw std::invalid_argument("AR requires a single frozen mocap_rigid_body name");
+    state["arPoseTopic"] = "/vrpn_client_node" +
+        (mode == "hybrid" ? "_" + source : "") + "/" + tracker + "/pose";
+  }
+  // Apply the authored experiment world transform once for a local physical AR
+  // source. Remote and simulation sources never infer one.
   if (source == "physical" || rotor) {
     const auto& offset = context["localizationOffset"];
-    profile["state"]["worldOffset"] = Json::Value(Json::arrayValue);
+    Json::Value values(Json::arrayValue);
     for (int i = 0; i < 3; ++i) {
       const auto& v = offset[i == 0 ? "x" : i == 1 ? "y" : "z"];
       if (!v.isNumeric() || v.isBool() || !std::isfinite(v.asDouble()))
         throw std::invalid_argument("AR localization offset must be finite");
-      profile["state"]["worldOffset"].append(v);
+      values.append(v);
     }
+    state["worldOffset"] = values;
   }
 }
 long slotNumber(const std::string& name) {
@@ -179,9 +243,17 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
   }
   std::set<std::string> applied_overrides;
   std::vector<Json::Value> ordered;std::set<std::string> namespaces;
+  std::set<std::string> slots;
+  static const std::set<std::string> robot_fields{"slotId","namespace","kind","visualization","hybridSource"};
   for(const auto& robot:value["robots"]) {
     if(!robot.isObject())throw std::invalid_argument("frozen Robot must be an object");
     const auto name=text(robot["namespace"],"Robot namespace");text(robot["kind"],"Robot kind");
+    const auto slot=text(robot["slotId"],"Robot slotId");
+    for(const auto& field:robot.getMemberNames())
+      if(!robot_fields.count(field))
+        throw std::invalid_argument("frozen Robot field \""+field+"\" is not part of the current display roster");
+    if(slot.empty()||!slots.insert(slot).second)
+      throw std::invalid_argument("invalid or repeated frozen Robot slotId");
     if(!std::regex_match(name,ns)||!namespaces.insert(name).second)throw std::invalid_argument("invalid or repeated frozen Robot namespace");
     ordered.push_back(robot);
   }
@@ -203,10 +275,6 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
     description["statePublisher"]=flag(visual["robotStatePublisher"],false,"robotStatePublisher");
     description["jointStateTopic"]=text(visual["jointStateTopic"],"jointStateTopic");
     auto model=optionalText(visual["sceneModel"],"sceneModel");
-    if(robot["kind"]=="scout_mini"&&robot["scout"].isObject()) {
-      const auto mocap=trim(optionalText(robot["scout"]["mocapRigidBodyName"],"mocapRigidBodyName"));
-      model=(mocap.empty()||mocap==name||name.compare(0,3,"ugv")==0)?"":mocap;
-    }
     // A ground robot whose scene is switched off keeps its kind and its
     // description, and has no scene presence.
     const bool ground=scene_class=="scout"||scene_class=="mecanum";
@@ -219,10 +287,6 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
       profile["labels"]["fontSize"]=invariant?pixels:meters;profile["labels"]["opacity"]=opacity;
       profile["frames"]["labelOffset"]=scene_class=="fs150"?offsets.uav:scene_class=="scout"?offsets.scout:offsets.mecanum;
     }
-    if(scene_class=="fs150") {
-      arSource(profile,robot,context);
-      if(height_projection)profile["model"]["heightProjectionColor"]=heightColor(panel,robot,ordered);
-    }
     // The scene-wide switches decide which shared outputs exist; scene paths and
     // Path topics are the robot's own.
     profile["publication"]["scenePaths"]=publication.scene_paths;profile["publication"]["paths"]=publication.paths;
@@ -230,6 +294,10 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
     if(profile_overrides.isMember(name)) {
       overlay(profile,profile_overrides[name]);
       applied_overrides.insert(name);
+    }
+    if(scene_class=="fs150") {
+      arSource(profile,robot,context);
+      if(height_projection)profile["model"]["heightProjectionColor"]=heightColor(panel,robot,ordered);
     }
     spec.robots.emplace(name,parseRobotProfile(name,profile));
   }

@@ -2,6 +2,8 @@
 #include <xgc2_ros_visualizer/profile.hpp>
 #include <gtest/gtest.h>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
 using namespace xgc2_ros_visualizer;
 
@@ -13,15 +15,13 @@ Json::Value minimal(const std::string& kind,const std::string& package="fs150_de
   document["model"]["description"]["file"]="urdf/robot.urdf";
   return document;
 }
-// A frozen public Robot row, as the experiment configuration holds it.
+// A projected display Robot row: exactly the five fields the display workflow
+// publishes. Source parameters stay in the frozen Session context rows.
 Json::Value fullRobot(const std::string& name,const std::string& kind="px4_multirotor",const std::string& scene="fs150") {
-  Json::Value result;result["namespace"]="/"+name;result["name"]="human label";result["kind"]=kind;
+  Json::Value result;result["slotId"]=name;result["namespace"]="/"+name;result["kind"]=kind;result["hybridSource"]="simulation";
   auto& visual=result["visualization"];visual["sceneClass"]=scene;visual["descriptionPackage"]="fs150_description";
   visual["descriptionFile"]="urdf/fs150_visual.urdf";visual["robotStatePublisher"]=false;
   visual["jointStateTopic"]="joint_states";visual["pathTopic"]="path";
-  result["hybridSource"]="simulation";result["profileId"]="px4-multirotor.physical.vrpn";
-  result["px4"]["mocapRigidBodyName"]="measured_"+name;
-  result["simulationPoseTopic"]="/frozen/simulation/"+name;
   return result;
 }
 Json::Value ground(const std::string& name,const std::string& kind="scout_mini",const std::string& scene="scout") {
@@ -30,14 +30,39 @@ Json::Value ground(const std::string& name,const std::string& kind="scout_mini",
   result["visualization"]["descriptionFile"]="urdf/robot.urdf";
   return result;
 }
+Json::Value frozenRow(const std::string& name,const std::string& profile_id="px4-multirotor.xsim.ros",
+                      const std::string& localization="") {
+  Json::Value result;result["slotId"]=name;result["namespace"]="/"+name;result["source"]="simulation";
+  result["profile"]["id"]=profile_id;
+  if(!localization.empty())result["profile"]["parameters"]["localization_pose_topic"]=localization;
+  return result;
+}
+void addRobot(Json::Value& value,const Json::Value& robot,const std::string& profile_id="px4-multirotor.xsim.ros",
+              const std::string& localization="") {
+  value["robots"].append(robot);
+  const auto name=robot["slotId"].asString();
+  value["context"]["robots"].append(frozenRow(name,profile_id,
+      localization.empty()?"/frozen/"+name+"/pose":localization));
+}
 Json::Value envelope() {
-  return parseJson("{\"robots\":[],\"context\":{\"runMode\":\"simulation\",\"worldBoundary\":null,\"scene\":{\"simulator\":\"xsim\"},\"localizationOffset\":{\"x\":1,\"y\":2,\"z\":3}},\"settings\":{},\"displayRelays\":[]}");
+  return parseJson("{\"robots\":[],\"context\":{\"runMode\":\"simulation\",\"worldBoundary\":null,\"scene\":{\"simulator\":\"xsim\"},\"localizationOffset\":{\"x\":1,\"y\":2,\"z\":3},\"robots\":[]},\"settings\":{},\"displayRelays\":[]}");
 }
 Json::Value fleet() {
   auto value=envelope();
-  value["robots"].append(fullRobot("uav1"));value["robots"].append(fullRobot("uav2"));
-  value["robots"].append(ground("ugv3"));value["robots"].append(ground("ugv4","mecanum_ugv","mecanum"));
+  addRobot(value,fullRobot("uav1"));
+  addRobot(value,fullRobot("uav2"));
+  addRobot(value,ground("ugv3"),"scout-mini.xsim.ros");
+  addRobot(value,ground("ugv4","mecanum_ugv","mecanum"),"mecanum-ugv.xsim.ros");
   return value;
+}
+// Sanitized actual HIL specimen from the failed hybrid Run: the projected
+// eight-Robot roster plus the frozen Session source rows and explicit remote
+// arPose settings. Unrelated Session, camera and device data were removed.
+Json::Value hilInput() {
+  std::ifstream input(std::string(PROFILE_TESTDATA)+"/hil-frozen-input.json");
+  if(!input.good())throw std::runtime_error("missing HIL frozen input fixture");
+  std::ostringstream contents;contents<<input.rdbuf();
+  return parseJson(contents.str());
 }
 }
 
@@ -130,6 +155,21 @@ TEST(RobotProfile, RejectsWhatDoesNotBelongToTheRobot) {
   document=minimal("fs150");document["path"]["arTopic"]="ar_path";check(document);
   EXPECT_THROW(parseRobotProfile("not/an/identifier",minimal("fs150")),std::invalid_argument);
 }
+TEST(RobotProfile, RemoteArPoseIsAnExplicitSourceWithoutALocalTopic) {
+  auto document=minimal("fs150");
+  document["state"]["sources"]["arPose"]["listen"]="tcp/127.0.0.1:17447";
+  document["state"]["sources"]["arPose"]["key"]="run/uav1/arPose";
+  const auto profile=parseRobotProfile("uav1",document);
+  EXPECT_TRUE(profile.ar_pose_topic.empty());
+  EXPECT_EQ(profile.ar_path_topic,"ar_path");
+  EXPECT_EQ(profile.remote_sources.at("arPose").key,"run/uav1/arPose");
+  EXPECT_EQ(parseRobotProfile("uav1",profile.json()),profile);
+  document["state"]["sources"]["arPose"]["key"]="run/*";
+  EXPECT_THROW(parseRobotProfile("uav1",document),std::invalid_argument);
+  document["state"]["sources"]["arPose"]["key"]="run/uav1/arPose";
+  document["state"]["arPoseTopic"]="/local/uav1/pose";
+  EXPECT_NO_THROW(parseRobotProfile("uav1",document));
+}
 TEST(RobotProfile, EqualityIsOverTheResolvedValues) {
   auto sparse=minimal("fs150");
   auto dense=parseRobotProfile("uav1",sparse).json();
@@ -142,53 +182,53 @@ TEST(RobotProfile, EqualityIsOverTheResolvedValues) {
 }
 
 TEST(InstanceInput, FrozenModeSourceOffsetAndNumericPaletteParity) {
-  auto value=envelope();value["robots"].append(fullRobot("uav10"));value["robots"].append(fullRobot("uav2"));
+  auto value=envelope();
+  addRobot(value,fullRobot("uav10"),"px4-multirotor.xsim.ros","/frozen/simulation/uav10");
+  addRobot(value,fullRobot("uav2"),"px4-multirotor.xsim.ros","/frozen/simulation/uav2");
   value["settings"]["uavPalette"]=parseJson("[\"#ABCDEF\",\"#123456\"]");
   for(const auto& mode:{"simulation","physical","hybrid"}) {
     value["context"]["runMode"]=mode;const auto spec=projectInstanceInput(value);
     ASSERT_EQ(spec.robots.size(),2U);
     const auto& first=spec.robots.at("uav10");const auto& second=spec.robots.at("uav2");
     EXPECT_EQ(first.height_projection_color,"#123456");EXPECT_EQ(second.height_projection_color,"#abcdef");
-    EXPECT_EQ(second.ar_pose_topic,std::string(mode)=="physical"?"/vrpn_client_node/measured_uav2/pose":"/frozen/simulation/uav2");
+    EXPECT_EQ(second.ar_pose_topic,"/frozen/simulation/uav2");
     EXPECT_DOUBLE_EQ(second.world_offset[2],std::string(mode)=="physical"?3:0);
     EXPECT_EQ(second.ar_path_topic,"ar_path");
   }
   value["robots"][0].removeMember("hybridSource");EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
   value["robots"][0]["hybridSource"]="physical";
-  auto physical=projectInstanceInput(value);EXPECT_EQ(physical.robots.at("uav10").ar_pose_topic,"/vrpn_client_node_physical/measured_uav10/pose");
+  auto physical=projectInstanceInput(value);EXPECT_EQ(physical.robots.at("uav10").ar_pose_topic,"/frozen/simulation/uav10");
   EXPECT_DOUBLE_EQ(physical.robots.at("uav10").world_offset[2],3);
   value["context"]["runMode"]="simulation";value["context"]["scene"]["simulator"]="gazebo";
+  value["context"]["robots"][0]["profile"]["parameters"]["mocap_rigid_body"]="uav10";
+  value["context"]["robots"][1]["profile"]["parameters"]["mocap_rigid_body"]="uav2";
   auto gazebo=projectInstanceInput(value);EXPECT_EQ(gazebo.robots.at("uav10").ar_pose_topic,"/vrpn_client_node/uav10/pose");
   EXPECT_DOUBLE_EQ(gazebo.robots.at("uav10").world_offset[2],0);
   value["context"]["runMode"]="physical";value["context"]["localizationOffset"]["z"]="invalid";
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
 }
-TEST(InstanceInput, NoneSimulatorUsesTheDirectPoseForBothTopics) {
+TEST(InstanceInput, NoneSimulatorUsesTheFrozenDirectPoseForBothTopics) {
   auto value=envelope();
   auto robot=fullRobot("uav1");
-  robot.removeMember("simulationPoseTopic");
-  value["robots"].append(robot);
+  addRobot(value,robot,"px4-multirotor.xsim.ros","/frozen/simulation/uav1");
   value["context"]["scene"]["simulator"]="none";
   const auto direct=projectInstanceInput(value);
   const auto& admitted=direct.robots.at("uav1");
-  EXPECT_EQ(admitted.ar_pose_topic,"/uav1/pose");
-  EXPECT_EQ(admitted.pose_topic,"/uav1/pose");
+  EXPECT_EQ(admitted.ar_pose_topic,"/frozen/simulation/uav1");
+  EXPECT_EQ(admitted.pose_topic,"/frozen/simulation/uav1");
   EXPECT_EQ(admitted.ar_path_topic,"ar_path");
   EXPECT_EQ(admitted.path_topic,"path");
   EXPECT_DOUBLE_EQ(admitted.world_offset[2],0);
-  value["robots"][0]["simulationPoseTopic"]="/frozen/simulation/uav1";
-  const auto authored=projectInstanceInput(value);
-  EXPECT_EQ(authored.robots.at("uav1").ar_pose_topic,"/frozen/simulation/uav1");
-  EXPECT_EQ(authored.robots.at("uav1").pose_topic,"/frozen/simulation/uav1");
+  auto missing=value;missing["context"]["robots"][0]["profile"]["parameters"].removeMember("localization_pose_topic");
+  EXPECT_THROW(projectInstanceInput(missing),std::invalid_argument);
   auto numbered=fullRobot("SQ01s");
-  numbered.removeMember("simulationPoseTopic");
   value["robots"][0]=numbered;
-  value["context"]["scene"]["simulator"]="none";
+  value["context"]["robots"][0]=frozenRow("SQ01s","px4-multirotor.xsim.ros","/plant/SQ01s/pose");
   const auto plant=projectInstanceInput(value);
-  EXPECT_EQ(plant.robots.at("SQ01s").pose_topic,"/SQ01s/pose");
-  EXPECT_EQ(plant.robots.at("SQ01s").ar_pose_topic,"/SQ01s/pose");
+  EXPECT_EQ(plant.robots.at("SQ01s").pose_topic,"/plant/SQ01s/pose");
+  EXPECT_EQ(plant.robots.at("SQ01s").ar_pose_topic,"/plant/SQ01s/pose");
   value["robots"][0]=robot;
-  value["robots"][0]["simulationPoseTopic"]="/frozen/simulation/uav1";
+  value["context"]["robots"][0]=frozenRow("uav1","px4-multirotor.xsim.ros","/frozen/simulation/uav1");
   value["context"]["scene"]["simulator"]="xsim";
   const auto xsim=projectInstanceInput(value);
   EXPECT_EQ(xsim.robots.at("uav1").ar_pose_topic,"/frozen/simulation/uav1");
@@ -197,29 +237,101 @@ TEST(InstanceInput, NoneSimulatorUsesTheDirectPoseForBothTopics) {
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
 }
 TEST(InstanceInput, HeightOffScoutBindingAndDescriptionOnlyArePreserved) {
-  auto value=envelope();value["settings"]["uavHeightProjection"]=false;value["robots"].append(fullRobot("uav1"));
-  auto a=ground("ugv2");a["scout"]["mocapRigidBodyName"]="different";value["robots"].append(a);
-  auto b=ground("uav3");b["scout"]["mocapRigidBodyName"]="rigid";value["robots"].append(b);
+  auto value=envelope();value["settings"]["uavHeightProjection"]=false;
+  addRobot(value,fullRobot("uav1"),"px4-multirotor.xsim.ros","/frozen/uav1/pose");
+  auto a=ground("ugv2");addRobot(value,a,"scout-mini.xsim.ros");
+  auto b=ground("uav3");b["visualization"]["sceneModel"]="rigid";addRobot(value,b,"scout-mini.xsim.ros");
   auto plain=fullRobot("description_only","other","");plain["visualization"]["descriptionPackage"]="scout_description";
-  value["robots"].append(plain);
+  addRobot(value,plain,"scout-mini.xsim.ros");
   auto spec=projectInstanceInput(value);
   ASSERT_EQ(spec.robots.size(),4U);
-  // A ground robot of the ugv slots is named by its slot; a Scout in another slot by its mocap body.
+  // A ground robot of the ugv slots is named by its slot; a Scout in another slot by its explicit sceneModel.
   EXPECT_EQ(spec.robots.at("uav3").scene_model,"rigid");EXPECT_EQ(spec.robots.at("ugv2").scene_model,"ugv2");
   EXPECT_TRUE(spec.robots.at("uav1").height_projection_color.empty());
   const auto& description_only=spec.robots.at("description_only");
   EXPECT_FALSE(description_only.hasScene());EXPECT_EQ(description_only.kind,RateKind::Global);
 }
+TEST(InstanceInput, FrozenHilRemoteArSourceWinsWithoutLocalOrCameraFallback) {
+  auto value=hilInput();
+  value["context"]["localizationOffset"]["x"]=2.0;
+  ASSERT_FALSE(value["context"].isMember("cameras"));  // no camera presence requirement
+  const auto spec=projectInstanceInput(value);
+  ASSERT_EQ(spec.robots.size(),8U);
+  const auto& hil=spec.robots.at("uav3");
+  EXPECT_TRUE(hil.ar_pose_topic.empty());
+  EXPECT_EQ(hil.ar_path_topic,"ar_path");
+  EXPECT_EQ(hil.remote_sources.at("arPose").key,
+            "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-03/measurement");
+  EXPECT_DOUBLE_EQ(hil.world_offset[0],0); // the remote producer owns its transform
+  EXPECT_EQ(parseRobotProfile("uav3",hil.json()),hil);
+  EXPECT_EQ(spec.robots.at("uav1").remote_sources.at("arPose").key,
+            "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-01/measurement");
+  // A remote source wins even if an obsolete/local topic is authored beside it.
+  auto both=value;
+  both["settings"]["robotProfiles"]["uav3"]["state"]["arPoseTopic"]="/local/invented/pose";
+  const auto remote_spec=projectInstanceInput(both);
+  const auto& remote_wins=remote_spec.robots.at("uav3");
+  EXPECT_TRUE(remote_wins.ar_pose_topic.empty());
+  EXPECT_EQ(remote_wins.remote_sources.at("arPose").key,hil.remote_sources.at("arPose").key);
+  // The explicitly authored transform is applied once, never replaced by the
+  // frozen Session localization offset.
+  auto explicit_offset=value;
+  explicit_offset["settings"]["robotProfiles"]["uav3"]["state"]["worldOffset"]=parseJson("[0.5,0,0]");
+  EXPECT_DOUBLE_EQ(projectInstanceInput(explicit_offset).robots.at("uav3").world_offset[0],0.5);
+  value["settings"]["robotProfiles"]["uav3"]["state"]["sources"]["arPose"]["key"]="run/*";
+  EXPECT_THROW(projectInstanceInput(value),std::invalid_argument); // never fall back to ROS
+}
+TEST(InstanceInput, FrozenLocalAndSimulationSourcesKeepTheirOwnProvenance) {
+  const auto captured=hilInput();
+  auto physical=captured;
+  physical["robots"]=Json::Value(Json::arrayValue);
+  physical["robots"].append(captured["robots"][2]);
+  physical["settings"]=Json::Value(Json::objectValue);
+  physical["context"]["robots"]=Json::Value(Json::arrayValue);
+  physical["context"]["robots"].append(captured["context"]["robots"][2]);
+  physical["context"]["localizationOffset"]["x"]=2.0;
+  auto real=projectInstanceInput(physical).robots.at("uav3");
+  EXPECT_EQ(real.ar_pose_topic,"/vrpn_client_node_physical/uav3/pose");
+  EXPECT_DOUBLE_EQ(real.world_offset[0],2.0);
+  EXPECT_TRUE(real.remote_sources.empty());
+  physical["context"]["robots"][0]["profile"]["parameters"].removeMember("localization_pose_topic");
+  EXPECT_EQ(projectInstanceInput(physical).robots.at("uav3").ar_pose_topic,
+            "/vrpn_client_node_physical/uav3/pose"); // explicit frozen root and tracker
+  physical["context"]["robots"][0]["profile"]["parameters"].removeMember("mocap_source_root");
+  EXPECT_THROW(projectInstanceInput(physical),std::invalid_argument); // no invented identity
+  physical["settings"]["robotProfiles"]["uav3"]["state"]["arPoseTopic"]="/explicit/mocap/pose";
+  EXPECT_EQ(projectInstanceInput(physical).robots.at("uav3").ar_pose_topic,"/explicit/mocap/pose");
+  auto simulation=captured;
+  simulation["robots"]=Json::Value(Json::arrayValue);
+  simulation["robots"].append(captured["robots"][0]);
+  simulation["settings"]=Json::Value(Json::objectValue);
+  simulation["context"]["robots"]=Json::Value(Json::arrayValue);
+  simulation["context"]["robots"].append(captured["context"]["robots"][0]);
+  simulation["context"]["localizationOffset"]["x"]=2.0;
+  const auto sim=projectInstanceInput(simulation).robots.at("uav1");
+  EXPECT_EQ(sim.ar_pose_topic,"/uav1/pose");EXPECT_DOUBLE_EQ(sim.world_offset[0],0);
+  simulation["context"]["scene"]["simulator"]="gazebo";
+  simulation["context"]["robots"][0]["profile"]["parameters"]["mocap_rigid_body"]="gazebo_uav1";
+  const auto gazebo=projectInstanceInput(simulation).robots.at("uav1");
+  EXPECT_EQ(gazebo.ar_pose_topic,"/vrpn_client_node_simulation/gazebo_uav1/pose");
+  EXPECT_DOUBLE_EQ(gazebo.world_offset[0],0);
+  auto missing=simulation;missing["context"]["robots"][0]["profile"]["parameters"].removeMember("mocap_rigid_body");
+  EXPECT_THROW(projectInstanceInput(missing),std::invalid_argument);
+  auto no_slot=simulation;no_slot["context"]["robots"]=Json::Value(Json::arrayValue);
+  EXPECT_THROW(projectInstanceInput(no_slot),std::invalid_argument);
+  auto legacy=simulation;legacy["robots"][0]["px4"]["mocapRigidBodyName"]="uav1";
+  EXPECT_THROW(projectInstanceInput(legacy),std::invalid_argument); // obsolete shape is explicit
+}
 TEST(InstanceInput, RobotsWithoutAnInstalledDescriptionAreNotMembers) {
-  auto value=envelope();auto bare=fullRobot("uav1");bare["visualization"]=Json::Value();value["robots"].append(bare);
-  value["robots"].append(fullRobot("uav2"));
+  auto value=envelope();auto bare=fullRobot("uav1");bare["visualization"]=Json::Value();addRobot(value,bare);
+  addRobot(value,fullRobot("uav2"));
   const auto spec=projectInstanceInput(value);
   EXPECT_EQ(spec.robots.size(),1U);EXPECT_EQ(spec.robots.count("uav1"),0U);
-  auto invalid=envelope();invalid["robots"].append(fullRobot("uav1"));invalid["robots"][0]["visualization"]["descriptionPackage"]="";
+  auto invalid=envelope();addRobot(invalid,fullRobot("uav1"));invalid["robots"][0]["visualization"]["descriptionPackage"]="";
   EXPECT_THROW(projectInstanceInput(invalid),std::invalid_argument);
 }
 TEST(InstanceInput, RelayKindComesFromTheRobotThatOwnsTheSource) {
-  auto value=envelope();value["robots"].append(fullRobot("uav1"));
+  auto value=envelope();addRobot(value,fullRobot("uav1"));
   value["displayRelays"]=parseJson("[{\"source\":\"/uav1/path\",\"topic\":\"/xgc/display/uav1/path\",\"messageType\":\"nav_msgs/Path\"},{\"source\":\"/map\",\"topic\":\"/xgc/display/map\",\"messageType\":\"nav_msgs/OccupancyGrid\"}]");
   const auto result=projectInstanceInput(value);
   ASSERT_EQ(result.scene.relays.size(),2U);
@@ -287,7 +399,7 @@ TEST(InstanceInput, GroundSceneSwitchKeepsDescriptionsAndKinds) {
   EXPECT_FALSE(spec.robots.at("ugv4").hasScene());EXPECT_EQ(spec.robots.at("ugv4").kind,RateKind::Mecanum);
 }
 TEST(InstanceInput, InvalidSceneLabelNamespaceFailsBeforeActivation) {
-  auto value=envelope();value["robots"].append(fullRobot("bad_slot"));
+  auto value=envelope();value["robots"].append(fullRobot("bad slot"));
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
   EXPECT_THROW(projectInstanceInput(parseJson("{\"robots\":[{\"namespace\":\"/a/b\",\"kind\":\"x\"}],\"context\":{\"runMode\":\"simulation\"},\"settings\":{},\"displayRelays\":[]}")),std::invalid_argument);
 }
@@ -334,7 +446,7 @@ TEST(InstanceDiff, OnlyTheRobotsWhoseProfileDiffersAreRebuilt) {
   value=fleet();value["settings"]["markerColor"]="#ff0000";
   EXPECT_EQ(diffInstance(base,projectInstanceInput(value)).rebuilt.size(),4U);
   // Membership.
-  value=fleet();value["robots"].append(fullRobot("uav5"));
+  value=fleet();addRobot(value,fullRobot("uav5"));
   change=diffInstance(base,projectInstanceInput(value));
   EXPECT_EQ(change.added,std::vector<std::string>{"uav5"});EXPECT_TRUE(change.rebuilt.empty());
   value=fleet();value["robots"].resize(2);
@@ -368,7 +480,7 @@ TEST(InstanceDiff, SceneSwitchesBoundaryAndRelaysAreNotRobotRebuilds) {
 }
 TEST(InstanceDiff, ChangeReportNamesEveryOutcome) {
   const auto base=projectInstanceInput(fleet());
-  auto value=fleet();value["robots"][0]["visualization"]["profile"]["labels"]["opacity"]=0.5;value["robots"].append(fullRobot("uav5"));
+  auto value=fleet();value["robots"][0]["visualization"]["profile"]["labels"]["opacity"]=0.5;addRobot(value,fullRobot("uav5"));
   const auto report=diffInstance(base,projectInstanceInput(value)).json();
   EXPECT_EQ(report["rebuilt"][0].asString(),"uav1");EXPECT_EQ(report["added"][0].asString(),"uav5");
   EXPECT_TRUE(report["removed"].empty());EXPECT_EQ(report["unchanged"].size(),3U);EXPECT_FALSE(report["scene"].asBool());

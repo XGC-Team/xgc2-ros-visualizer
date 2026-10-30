@@ -168,7 +168,7 @@ class Member::Impl {
       std::lock_guard<std::mutex> lock(data->mutex);data->state.pose=value;
       if(record)data->path.append(value.stamp,path_pose);
     });
-    if (!profile.ar_pose_topic.empty()) {
+    if (!profile.ar_pose_topic.empty() || profile.remote_sources.count("arPose") != 0) {
       const auto offset=profile.world_offset;
       subscribeInput<geometry_msgs::PoseStamped>(node,"arPose",profile.ar_pose_topic,[data,offset](const geometry_msgs::PoseStampedConstPtr& msg) {
         if (!finite(msg->pose)) return;

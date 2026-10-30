@@ -103,19 +103,26 @@ def render(definition, binary, allocations):
 
 def robot(name, kind='px4_multirotor', scene_class='fs150', package='fs150_description',
           urdf='urdf/fs150_visual.urdf'):
-    """A frozen public Robot row, as the experiment configuration holds it."""
-    return dict(name=name, namespace='/' + name, kind=kind,
+    """A projected display Robot row: exactly the five fields the display workflow publishes."""
+    return dict(slotId=name, namespace='/' + name, kind=kind,
                 visualization=dict(sceneClass=scene_class, sceneModel=name,
                     descriptionPackage=package, descriptionFile=urdf,
                     robotStatePublisher=False, jointStateTopic='joint_states', pathTopic='path'),
-                hybridSource='simulation', profileId='px4-multirotor.physical.vrpn',
-                px4=dict(mocapRigidBodyName=name),
-                simulationPoseTopic='/raw/' + name)
+                hybridSource='simulation')
 
 
 def scout(name):
     return robot(name, kind='scout_mini', scene_class='scout', package='scout_description',
                  urdf='urdf/scout_visual.urdf')
+
+
+def frozen_robot(robot_row, source='simulation', profile_id='px4-multirotor.xsim.ros',
+                 localization=None):
+    row = dict(slotId=robot_row['slotId'], namespace=robot_row['namespace'], source=source,
+               profile=dict(id=profile_id, parameters={}))
+    if localization:
+        row['profile']['parameters']['localization_pose_topic'] = localization
+    return row
 
 
 def instance(robots=(), relays=None, publication=None, settings=None):
@@ -124,7 +131,9 @@ def instance(robots=(), relays=None, publication=None, settings=None):
         panel['publication'] = publication
     return dict(robots=list(robots),
                 context=dict(runMode='simulation', worldBoundary=None, scene=dict(simulator='xsim'),
-                             localizationOffset=dict(x=1, y=2, z=3)),
+                             localizationOffset=dict(x=1, y=2, z=3),
+                             robots=[frozen_robot(item, localization='/raw/' + item['slotId'])
+                                     for item in robots]),
                 settings=panel, displayRelays=relays or [])
 
 

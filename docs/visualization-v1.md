@@ -138,6 +138,12 @@ increasing precedence: the kind's defaults, the Robot facts (`visualization`,
 the panel `settings`, the Robot's saved profile `visualization.profile`, and `settings.robotProfiles` overlays keyed by namespace without slash, a
 profile fragment with the sections below that is merged over the rest.
 
+The projected Robot row carries exactly `slotId`, `namespace`, `kind`,
+`visualization` and `hybridSource`. Source parameters remain in the frozen
+Session `context.robots` row joined by `slotId` and the exact `namespace`;
+obsolete top-level `px4`, `profileId`, `simulationPoseTopic` and `scout`
+fields are rejected rather than interpreted.
+
 The panel `settings` the service reads: `robotProfiles` (strict per-robot profile overlays), `displayRelaySources` (strict declared-source overrides; see README), `markerColor`, `labelScaleInvariant`,
 `labelFontSizeMeters`, `labelFontSizePixels`, `markerOpacity`, `uavLabelOffset`,
 `scoutLabelOffset`, `mecanumLabelOffset`, `worldBoundaryMode` (`off`, `ground`,
@@ -214,12 +220,12 @@ value whether it is written out or abbreviated. Required are `model.kind` and
 | `model.heightProjectionColor` | FS150 only. Lowercase `#rrggbb` of the height projection; empty disables it | empty |
 | `model.description` | Installed URDF `{package, file, statePublisher, jointStateTopic}`. `statePublisher` makes the service publish its joint TF; a scene robot cannot also be a state publisher | `jointStateTopic` `joint_states` |
 | `state.poseTopic` | The one pose that drives the scene robot | `/<ns>/mavros/local_position/pose` (FS150), `/<ns>/pose` (ground) |
-| `state.arPoseTopic` | FS150 only. Mocap pose of the camera-pane identity and AR path; empty for none | empty |
-| `state.worldOffset` | FS150 only. `[x,y,z]` added once to the AR pose | `[0,0,0]` |
-| `state.sources` | Per-input exact Zenoh `{listen,key}` selections; unlisted inputs remain local ROS. See README for types and endpoint sharing. | empty |
+| `state.arPoseTopic` | FS150 only. Local pose of the camera-pane identity and AR path; remote `state.sources.arPose` may be selected without a local topic | empty |
+| `state.worldOffset` | FS150 only. Authored `[x,y,z]` added once to the AR pose; a remote AR producer is not given a second inferred offset | `[0,0,0]` |
+| `state.sources` | Per-input exact Zenoh `{listen,key}` selections; unlisted inputs remain local ROS. An explicit `arPose` source wins over a local topic and never falls back to ROS. See README for types and endpoint sharing. | empty |
 | `frames.world` | The fixed frame (`world`) | `world` |
 | `frames.labelOffset` | Height of the label anchor above the robot, -10..10 m | 0.55 (`scout` 0.65, `mecanum` 0.32) |
-| `path.topic`, `path.arTopic` | Path topics below the robot namespace; `arTopic` exists with `arPoseTopic` only | `path`, `ar_path` |
+| `path.topic`, `path.arTopic` | Path topics below the robot namespace; `arTopic` exists with a local or explicit remote AR pose source | `path`, `ar_path` |
 | `labels` | `color` (lowercase `#rrggbb`), `scaleInvariant`, `fontSize` (meters, or pixels when scale invariant), `opacity` 0..1 | `#00a2ff`, `false`, 0.24 / 16, 1 |
 | `animation` | Freshness windows and animation inputs of the kind: FS150 `poseTimeout`, `stateTimeout`, `rotorGround`, `rotorTransition`, `rotorAirborne`; Scout `poseTimeout`, `motionTimeout`, `wheelRadius`, `trackWidth`, `wheelDeadband`, `wheelMaxSpeed`; Mecanum the same with `wheelbasePlusTrack` for `trackWidth`; none for `global` | 0.5 s, 2 s, 25 / 90 / 60 rad/s, 0.08 m, 0.416 m, 0.02, 35 rad/s |
 | `publication` | What the robot contributes: `markers`, `transforms`, `scene`, `scenePaths`, `paths` | `true`, `true`, `true`, `false`, `true` |

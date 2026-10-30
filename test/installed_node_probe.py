@@ -34,18 +34,27 @@ def resources(pid):
 
 
 def robot(name, ar=False):
-    return dict(name=name, namespace='/' + name, kind='px4_multirotor',
+    return dict(slotId=name, namespace='/' + name, kind='px4_multirotor',
                 visualization=dict(sceneClass='fs150', sceneModel=name,
                     descriptionPackage='fs150_description', descriptionFile='urdf/fs150_visual.urdf',
                     robotStatePublisher=False, jointStateTopic='joint_states', pathTopic='path'),
-                hybridSource='physical' if ar else 'simulation', profileId='px4-multirotor.physical.vrpn',
-                px4=dict(mocapRigidBodyName=name),
-                simulationPoseTopic='/raw/' + name if ar else '/' + name + '/mavros/local_position/pose')
+                hybridSource='physical' if ar else 'simulation')
+
+
+def frozen_robot(row, ar=False):
+    name = row['slotId']
+    return dict(slotId=name, namespace=row['namespace'], source='physical' if ar else 'simulation',
+                profile=dict(id='px4-multirotor.physical.vrpn' if ar else 'px4-multirotor.xsim.ros',
+                    parameters=dict(localization_pose_topic=(
+                        '/vrpn_client_node_physical/' + name + '/pose' if ar else '/raw/' + name))))
 
 
 def instance(count=0, relays=None, scene=True):
     rows = [robot('uav%d' % (i + 1), i == 0) for i in range(count)]
-    return dict(robots=rows, context=dict(runMode='hybrid', worldBoundary=None, scene=dict(simulator='xsim'), localizationOffset=dict(x=1, y=2, z=3)),
+    return dict(robots=rows,
+                context=dict(runMode='hybrid', worldBoundary=None, scene=dict(simulator='xsim'),
+                             localizationOffset=dict(x=1, y=2, z=3),
+                             robots=[frozen_robot(row, i == 0) for i, row in enumerate(rows)]),
                 settings=dict(publication=dict(transforms=scene, scene=scene, markers=scene,
                                                scenePaths=scene, paths=scene)), displayRelays=relays or [])
 
@@ -348,6 +357,7 @@ def run(probe):
     for observer in observers:
         observer.unregister()
     path_only = instance(1); path_only['robots'] = [robot('uav101')]
+    path_only['context']['robots'] = [frozen_robot(path_only['robots'][0])]
     path_only['settings']['publication']['paths'] = False
     markers.clear(); scenes.clear()
     rpc('PUT', '/v1/instances/path-only', path_only)

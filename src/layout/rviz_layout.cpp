@@ -176,13 +176,6 @@ Json::Value prepareRvizLayout(const Json::Value &input) {
     auto model = v.get("sceneModel", name).asString();
     if (model.empty())
       model = name;
-    if (r["kind"] == "scout_mini" && r["scout"].isObject()) {
-      const auto mocap = r["scout"].get("mocapRigidBodyName", "").asString();
-      model =
-          (!mocap.empty() && mocap != name && name.compare(0, 3, "ugv") != 0)
-              ? mocap
-              : name;
-    }
     require(std::regex_match(model, identifier), "invalid native scene model");
     const auto prefix = v.get("sceneClass", "").asString().empty()
                             ? model

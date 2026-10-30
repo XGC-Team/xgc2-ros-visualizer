@@ -293,7 +293,13 @@ reading this member's local-position pose and MAVROS flight state remotely:
 
 FS150 accepts `pose` and `arPose` (`geometry_msgs/PoseStamped`), `state`
 (`mavros_msgs/State`) and `extendedState` (`mavros_msgs/ExtendedState`).
-`arPose` is valid only when `state.arPoseTopic` is present. Scout/Mecanum accept
+A remote `arPose` is an explicit AR input even without a local
+`state.arPoseTopic`; it never falls back to local ROS. The remote producer owns
+its coordinate transformation, so the instance does not infer a second physical
+world offset. An explicitly authored `state.worldOffset` remains authoritative.
+Local physical AR uses the frozen slot's explicit `localization_pose_topic`, or
+`mocap_source_root` plus `mocap_rigid_body`; a missing identity is an error.
+Scout/Mecanum accept
 `pose` (`geometry_msgs/PoseStamped`), `twist` (`geometry_msgs/TwistStamped`)
 and `cmdVel` (`geometry_msgs/Twist`). Existing source-time, world offset and
 history callbacks are shared with local input. Replacing or deleting a profile
