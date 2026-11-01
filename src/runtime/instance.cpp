@@ -281,7 +281,7 @@ class Instance::Impl {
   Members members;
   std::map<std::string, RelayRecord> relays;
   std::shared_ptr<SharedDemand> demand{std::make_shared<SharedDemand>()};
-  std::array<RateGate, kChannelCount> gates;  // the global row: root TF, statics, boundary, readiness
+  std::array<RateGate, kChannelCount> gates;  // the global row: statics, boundary, readiness
   bool static_dirty{true}, boundary_sent{false}, scene_ready_sent{false}, description_ready_sent{false};
   double history_max_rate_hz{2};
   bool history_visible{true};

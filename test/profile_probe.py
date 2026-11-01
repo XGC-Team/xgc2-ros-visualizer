@@ -221,6 +221,12 @@ def run(probe, definition):
     # ---- Rates: defaults from the per-kind table, overrides per robot -----------------------
     table = probe.rpc('GET', '/v1/rates')
     require(table['desiredRevision'] == 1 and table['rates']['fs150']['path'] == 10, 'unexpected default table')
+    require('tf_root' not in table['rates']['global'] and table['rates']['global']['tf_static'] == 1,
+            'retired root rate or changed static cadence')
+    legacy_table = copy.deepcopy(table['rates'])
+    legacy_table['global']['tf_root'] = 30
+    probe.rpc('PUT', '/v1/rates', dict(expectedRevision=1, rates=legacy_table), 400)
+    require(probe.rpc('GET', '/v1/rates')['rates'] == table['rates'], 'retired root rate changed the table')
     base1 = rate_of(run_id, 'uav1', 'path')
     base2 = rate_of(run_id, 'uav2', 'path')
     require(7 <= base1 <= 12 and 7 <= base2 <= 12, 'default path rates %.1f %.1f' % (base1, base2))

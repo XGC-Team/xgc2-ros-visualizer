@@ -67,8 +67,9 @@ def main(binary):
         require(sum(t.child_frame_id == 'xgc_origin' for t in late[-1].transforms) == 1,
                 'late subscriber did not receive exactly one world root')
         status = probe.rpc('GET', '/v1/instances/origin')
-        require(status['publicationCounters']['global']['tf_root'] == 0,
-                'retained compatibility channel counted dynamic root publications')
+        counters = status['publicationCounters']['global']
+        require('tf_root' not in counters, 'retired dynamic root counter is still exposed')
+        require(counters['tf_static'] >= 1, 'static transform publication was not counted')
         probe.rpc('DELETE', '/v1/instances/origin')
         late_sub.unregister()
         for subscriber in subscribers: subscriber.unregister()

@@ -9,7 +9,7 @@ namespace xgc2_ros_visualizer {
 namespace {
 constexpr const char* kinds[] = {"fs150", "scout", "mecanum", "global"};
 constexpr const char* channels[] = {"pose_tf", "joint_tf", "markers", "scene", "scene_path", "path",
-  "ar_path", "ar_identity", "height_projection", "height_projection_ar", "tf_root", "tf_static",
+  "ar_path", "ar_identity", "height_projection", "height_projection_ar", "tf_static",
   "world_boundary", "readiness", "display_pointcloud", "display_grid", "display_path", "display_pose_array",
   "display_marker", "display_marker_array"};
 static_assert(sizeof(channels) / sizeof(channels[0]) == kChannelCount, "channel names drifted from Channel");
@@ -57,8 +57,8 @@ RobotModelKind modelKind(RateKind kind) {
 }
 bool applicable(RateKind kind, Channel channel) {
   if (channel >= Channel::DisplayPointcloud) return true;
-  if (kind == RateKind::Global) return channel == Channel::JointTf || (channel >= Channel::TfRoot && channel <= Channel::Readiness);
-  if (channel >= Channel::TfRoot) return false;
+  if (kind == RateKind::Global) return channel == Channel::JointTf || (channel >= Channel::TfStatic && channel <= Channel::Readiness);
+  if (channel >= Channel::TfStatic) return false;
   if (channel == Channel::HeightProjection || channel == Channel::HeightProjectionAr)
     return kind == RateKind::Fs150;
   return true;
@@ -88,7 +88,7 @@ Rates defaultRates() {
     if (!applicable(static_cast<RateKind>(k),channel)) continue;
     double hz=10;
     if (channel==Channel::PoseTf) hz=120;
-    if (channel==Channel::JointTf || channel==Channel::Markers || channel==Channel::TfRoot) hz=30;
+    if (channel==Channel::JointTf || channel==Channel::Markers) hz=30;
     if (channel==Channel::TfStatic || channel==Channel::WorldBoundary || channel==Channel::Readiness) hz=1;
     result.values[k][c]=hz;
   }

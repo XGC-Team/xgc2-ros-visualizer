@@ -1,6 +1,7 @@
 #include <xgc2_ros_visualizer/config.hpp>
 #include <xgc2_ros_visualizer/declared_wire.hpp>
 #include <xgc2_ros_visualizer/source_history.hpp>
+#include "runtime/member.hpp"
 #include "relay/marker_coalesce.hpp"
 #include "relay/display_snapshot.hpp"
 #include <sensor_msgs/PointCloud2.h>
@@ -40,6 +41,28 @@ TEST(Rates, CompleteRoundTripAndKindIsolation) {
   EXPECT_DOUBLE_EQ(changed.get(RateKind::Global,Channel::JointTf),30);
   EXPECT_FALSE(applicable(RateKind::Global,Channel::PoseTf));
   EXPECT_EQ(changed.json(),json);
+}
+TEST(Rates, RetiredTfRootIsRejectedAndStaticKeepsItsOwnCadence) {
+  const auto table=defaultRates();
+  auto complete=table.json();
+  EXPECT_FALSE(complete["global"].isMember("tf_root"));
+  EXPECT_DOUBLE_EQ(table.get(RateKind::Global,Channel::TfStatic),1);
+  EXPECT_TRUE(applicable(RateKind::Global,Channel::TfStatic));
+  EXPECT_FALSE(applicable(RateKind::Fs150,Channel::TfStatic));
+  RateGate default_gate;
+  EXPECT_TRUE(default_gate.take(ros::Time(10,0),table.get(RateKind::Global,Channel::TfStatic)));
+  EXPECT_FALSE(default_gate.take(ros::Time(10,900000000),table.get(RateKind::Global,Channel::TfStatic)));
+  EXPECT_TRUE(default_gate.take(ros::Time(11,0),table.get(RateKind::Global,Channel::TfStatic)));
+  complete["global"]["tf_static"]=5;
+  const auto configured=parseRates(complete,true);
+  EXPECT_DOUBLE_EQ(configured.get(RateKind::Global,Channel::TfStatic),5);
+  RateGate configured_gate;
+  EXPECT_TRUE(configured_gate.take(ros::Time(10,0),configured.get(RateKind::Global,Channel::TfStatic)));
+  EXPECT_FALSE(configured_gate.take(ros::Time(10,190000000),configured.get(RateKind::Global,Channel::TfStatic)));
+  EXPECT_TRUE(configured_gate.take(ros::Time(10,200000000),configured.get(RateKind::Global,Channel::TfStatic)));
+  EXPECT_THROW(parseRates(parseJson("{\"global\":{\"tf_root\":30}}"),false),std::invalid_argument);
+  complete["global"]["tf_root"]=30;
+  EXPECT_THROW(parseRates(complete,true),std::invalid_argument);
 }
 TEST(Rates, StartupOverlayAndStrictAtomicCandidateValidation) {
   auto empty=Json::Value(Json::objectValue);

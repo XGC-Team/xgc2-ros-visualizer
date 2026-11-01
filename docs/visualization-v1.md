@@ -279,10 +279,10 @@ A robot override replaces channels of the robot's own kind row for this robot
 only: `PUT .../rates` with `{"rates":{"path":2}}` makes the path of this robot
 2 Hz while every other robot follows the table. The body replaces the previous
 overrides (`{}` clears them). Display-relay channels and the channels of the
-scene (`tf_root`, `tf_static`, `world_boundary`, `readiness`) are not
-overridable; a `global` robot can override `joint_tf` only. `tf_root` remains in
-the rate table for compatibility but publishes no dynamic transform: the fixed
-`world → xgc_origin` is owned only by latched `/tf_static`. `expectedRevision`
+scene (`tf_static`, `world_boundary`, `readiness`) are not
+overridable; a `global` robot can override `joint_tf` only. The fixed
+`world → xgc_origin` is owned by latched `/tf_static`, governed by `tf_static`.
+The removed `tf_root` is not an accepted rate. `expectedRevision`
 is the robot's `desiredRevision`; without it the write is unconditional.
 
 The effective rate of a channel is the override if the robot has one, else the

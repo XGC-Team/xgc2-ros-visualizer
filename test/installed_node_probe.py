@@ -181,6 +181,11 @@ def run(probe):
         return result
     default_rates = rpc('GET', '/v1/rates')['rates']
     require(default_rates['fs150']['path'] == 10, 'unexpected default table')
+    require('tf_root' not in default_rates['global'] and default_rates['global']['tf_static'] == 1,
+            'retired root rate or changed static cadence')
+    legacy_rates = copy.deepcopy(default_rates); legacy_rates['global']['tf_root'] = 30
+    put_rates(legacy_rates, 400)
+    require(rpc('GET', '/v1/rates')['rates'] == default_rates, 'retired root rate changed the table')
     rpc('PUT', '/v1/rates', dict(expectedRevision=1, rates={'fs150': {'path': 7}}), 400)
     require(rpc('GET', '/v1/rates')['rates'] == default_rates, 'partial runtime PUT changed rates')
     rpc('PUT', '/v1/rates', default_rates, 400)

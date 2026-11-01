@@ -10,12 +10,12 @@
 namespace xgc2_ros_visualizer {
 // A robot's kind selects its renderer and its row of the rate table. Global is
 // the row of everything that belongs to no concrete robot kind (standard TF
-// root, static frames, world boundary, readiness and robots that only publish
+// static frames, world boundary, readiness and robots that only publish
 // their description).
 enum class RateKind : std::size_t { Fs150, Scout, Mecanum, Global, Count };
 enum class Channel : std::size_t {
   PoseTf, JointTf, Markers, Scene, ScenePath, Path, ArPath, ArIdentity,
-  HeightProjection, HeightProjectionAr, TfRoot, TfStatic, WorldBoundary,
+  HeightProjection, HeightProjectionAr, TfStatic, WorldBoundary,
   Readiness, DisplayPointcloud, DisplayGrid, DisplayPath, DisplayPoseArray,
   DisplayMarker, DisplayMarkerArray, Count
 };
