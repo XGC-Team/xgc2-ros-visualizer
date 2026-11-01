@@ -30,8 +30,8 @@ struct LabelProfile {
 };
 
 struct AnimationProfile {
-  // Freshness windows of the pose, the MAVROS state and the ground motion inputs.
-  double pose_timeout{0.5}, state_timeout{2.0}, motion_timeout{0.5};
+  // Freshness windows of the pose history and ground motion inputs.
+  double pose_timeout{0.5}, motion_timeout{0.5};
   // FS150 rotor speeds by flight state, rad/s.
   double rotor_ground{25.0}, rotor_transition{90.0}, rotor_airborne{60.0};
   // Ground wheels.

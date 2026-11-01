@@ -19,16 +19,22 @@ struct MemberTestAccess {
     input->state.pose.pose.orientation.w=1;
   }
   static void flight(const std::shared_ptr<RobotInput>& input,bool available,bool armed,const ros::Time& stamp) {
-    std::lock_guard<std::mutex> lock(input->mutex);
-    input->state.state_available=available;
-    input->state.armed=armed;
-    input->state.state_stamp=stamp;
+    if(!available) {
+      std::lock_guard<std::mutex> lock(input->mutex);
+      input->state.state_available=false;input->state.armed=armed;
+      return;
+    }
+    mavros_msgs::State message;message.header.stamp=stamp;message.armed=armed;
+    input->observeFlight(message);
   }
-  static void landed(const std::shared_ptr<RobotInput>& input,bool available,std::uint8_t state,const ros::Time& receipt) {
-    std::lock_guard<std::mutex> lock(input->mutex);
-    input->state.extended_available=available;
-    input->state.landed=state;
-    input->state.extended_stamp=receipt;
+  static void landed(const std::shared_ptr<RobotInput>& input,bool available,std::uint8_t state) {
+    if(!available) {
+      std::lock_guard<std::mutex> lock(input->mutex);
+      input->state.extended_available=false;input->state.landed=state;
+      return;
+    }
+    mavros_msgs::ExtendedState message;message.landed_state=state;
+    input->observeLanded(message);
   }
 };
 
@@ -104,8 +110,9 @@ TEST_F(MemberRotor, GroundAndAirSpeedUseRetainedLandedFactAfterReceiptWindow) {
     const auto input=MemberTestAccess::input(member);
     MemberTestAccess::pose(input);
     MemberTestAccess::flight(input,true,true,ros::Time(94));
-    // This field records local receipt time, not the ExtendedState header.
-    MemberTestAccess::landed(input,available,landed,ros::Time(94));
+    ros::Time::setNow(ros::Time(94));
+    MemberTestAccess::landed(input,available,landed);
+    ros::Time::setNow(ros::Time(100));
     tick(member,ros::Time(100));
     return tick(member,ros::Time(100,100000000));
   };

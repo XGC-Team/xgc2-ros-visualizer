@@ -89,7 +89,7 @@ AnimationProfile defaultAnimation(RateKind kind) {
   return result;
 }
 Names animationFields(RateKind kind) {
-  static const Names fs150 = {"poseTimeout", "stateTimeout", "rotorGround", "rotorTransition", "rotorAirborne"};
+  static const Names fs150 = {"poseTimeout", "rotorGround", "rotorTransition", "rotorAirborne"};
   static const Names scout = {"poseTimeout", "motionTimeout", "wheelRadius", "trackWidth", "wheelDeadband", "wheelMaxSpeed"};
   static const Names mecanum = {"poseTimeout", "motionTimeout", "wheelRadius", "wheelbasePlusTrack", "wheelDeadband", "wheelMaxSpeed"};
   static const Names none = {};
@@ -137,7 +137,6 @@ Json::Value RobotProfile::json() const {
   auto& animation_json = result["animation"] = Json::Value(Json::objectValue);
   if (kind != RateKind::Global) animation_json["poseTimeout"] = animation.pose_timeout;
   if (kind == RateKind::Fs150) {
-    animation_json["stateTimeout"] = animation.state_timeout;
     animation_json["rotorGround"] = animation.rotor_ground;
     animation_json["rotorTransition"] = animation.rotor_transition;
     animation_json["rotorAirborne"] = animation.rotor_airborne;
@@ -257,7 +256,6 @@ RobotProfile parseRobotProfile(const std::string& id, const Json::Value& documen
   result.animation = defaultAnimation(result.kind);
   auto& a = result.animation;
   a.pose_timeout = number(animation, "poseTimeout", a.pose_timeout, 0.0, 3600.0, "animation.poseTimeout");
-  a.state_timeout = number(animation, "stateTimeout", a.state_timeout, 0.0, 3600.0, "animation.stateTimeout");
   a.motion_timeout = number(animation, "motionTimeout", a.motion_timeout, 0.0, 3600.0, "animation.motionTimeout");
   a.rotor_ground = number(animation, "rotorGround", a.rotor_ground, 0.0, 1e4, "animation.rotorGround");
   a.rotor_transition = number(animation, "rotorTransition", a.rotor_transition, 0.0, 1e4, "animation.rotorTransition");

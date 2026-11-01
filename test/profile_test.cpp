@@ -74,7 +74,7 @@ TEST(RobotProfile, KindDefaultsAreResolvedAndTheDocumentRoundTrips) {
   EXPECT_EQ(uav.path_topic,"path");EXPECT_TRUE(uav.ar_pose_topic.empty());EXPECT_TRUE(uav.ar_path_topic.empty());
   EXPECT_TRUE(uav.publication.transforms);EXPECT_TRUE(uav.publication.scene);EXPECT_TRUE(uav.publication.paths);
   EXPECT_TRUE(uav.publication.markers);EXPECT_FALSE(uav.publication.scene_paths);
-  EXPECT_DOUBLE_EQ(uav.animation.rotor_airborne,60);EXPECT_DOUBLE_EQ(uav.animation.state_timeout,2.0);
+  EXPECT_DOUBLE_EQ(uav.animation.rotor_airborne,60);EXPECT_DOUBLE_EQ(uav.animation.pose_timeout,0.5);
   const auto scout=parseRobotProfile("ugv3",minimal("scout","scout_description"));
   EXPECT_EQ(scout.pose_topic,"/ugv3/pose");EXPECT_DOUBLE_EQ(scout.label_offset,0.65);
   EXPECT_DOUBLE_EQ(scout.animation.wheel_radius,0.08);EXPECT_DOUBLE_EQ(scout.animation.track_width,0.416);
@@ -92,6 +92,21 @@ TEST(RobotProfile, KindDefaultsAreResolvedAndTheDocumentRoundTrips) {
   EXPECT_TRUE(uav.json()["animation"].isMember("rotorGround"));EXPECT_FALSE(uav.json()["animation"].isMember("wheelRadius"));
   EXPECT_TRUE(scout.json()["animation"].isMember("trackWidth"));EXPECT_FALSE(scout.json()["animation"].isMember("wheelbasePlusTrack"));
   EXPECT_TRUE(mecanum.json()["animation"].isMember("wheelbasePlusTrack"));EXPECT_TRUE(plain.json()["animation"].empty());
+}
+TEST(RobotProfile, RejectsRemovedStateTimeoutAndPreservesOtherAnimationInputs) {
+  auto uav=minimal("fs150");
+  uav["animation"]["poseTimeout"]=1.5;
+  const auto profile=parseRobotProfile("uav1",uav);
+  EXPECT_DOUBLE_EQ(profile.animation.pose_timeout,1.5);
+  EXPECT_FALSE(profile.json()["animation"].isMember("stateTimeout"));
+  uav["animation"]["stateTimeout"]=2.0;
+  EXPECT_THROW(parseRobotProfile("uav1",uav),std::invalid_argument);
+
+  auto scout=minimal("scout","scout_description");
+  scout["animation"]["motionTimeout"]=1.25;
+  const auto ground=parseRobotProfile("ugv3",scout);
+  EXPECT_DOUBLE_EQ(ground.animation.motion_timeout,1.25);
+  EXPECT_DOUBLE_EQ(ground.json()["animation"]["motionTimeout"].asDouble(),1.25);
 }
 TEST(RobotProfile, EverySectionOverridesItsDefaultsAndStaysStrict) {
   auto document=minimal("fs150");

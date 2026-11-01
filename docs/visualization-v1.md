@@ -227,7 +227,7 @@ value whether it is written out or abbreviated. Required are `model.kind` and
 | `frames.labelOffset` | Height of the label anchor above the robot, -10..10 m | 0.55 (`scout` 0.65, `mecanum` 0.32) |
 | `path.topic`, `path.arTopic` | Path topics below the robot namespace; `arTopic` exists with a local or explicit remote AR pose source | `path`, `ar_path` |
 | `labels` | `color` (lowercase `#rrggbb`), `scaleInvariant`, `fontSize` (meters, or pixels when scale invariant), `opacity` 0..1 | `#00a2ff`, `false`, 0.24 / 16, 1 |
-| `animation` | Freshness windows and animation inputs of the kind: FS150 `poseTimeout`, `stateTimeout`, `rotorGround`, `rotorTransition`, `rotorAirborne`; Scout `poseTimeout`, `motionTimeout`, `wheelRadius`, `trackWidth`, `wheelDeadband`, `wheelMaxSpeed`; Mecanum the same with `wheelbasePlusTrack` for `trackWidth`; none for `global` | 0.5 s, 2 s, 25 / 90 / 60 rad/s, 0.08 m, 0.416 m, 0.02, 35 rad/s |
+| `animation` | History/motion windows and animation inputs of the kind: FS150 `poseTimeout`, `rotorGround`, `rotorTransition`, `rotorAirborne`; Scout `poseTimeout`, `motionTimeout`, `wheelRadius`, `trackWidth`, `wheelDeadband`, `wheelMaxSpeed`; Mecanum the same with `wheelbasePlusTrack` for `trackWidth`; none for `global` | 0.5 s, 25 / 90 / 60 rad/s, 0.08 m, 0.416 m, 0.02, 35 rad/s |
 | `publication` | What the robot contributes: `markers`, `transforms`, `scene`, `scenePaths`, `paths` | `true`, `true`, `true`, `false`, `true` |
 
 `publication` can only narrow what the scene publishes: the shared outputs

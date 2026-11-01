@@ -52,7 +52,7 @@ struct PoseValue {
 struct RobotState {
   PoseValue pose,ar;
   geometry_msgs::Twist cmd,twist;
-  ros::Time cmd_stamp,twist_stamp,state_stamp,extended_stamp;
+  ros::Time cmd_stamp,twist_stamp;
   bool cmd_available{false},twist_available{false},twist_world{false},state_available{false},extended_available{false},armed{false};
   std::uint8_t landed{0};
 };
@@ -60,6 +60,14 @@ struct RobotInput {
   std::mutex mutex;
   RobotState state;
   SourceHistory path,ar_path;
+  void observeFlight(const mavros_msgs::State& message) {
+    std::lock_guard<std::mutex> lock(mutex);
+    state.armed=message.armed;state.state_available=true;
+  }
+  void observeLanded(const mavros_msgs::ExtendedState& message) {
+    std::lock_guard<std::mutex> lock(mutex);
+    state.landed=message.landed_state;state.extended_available=true;
+  }
 };
 foxglove_msgs::SceneEntityDeletion deletion(const std::string& id,const ros::Time& stamp) {
   foxglove_msgs::SceneEntityDeletion result; result.type=foxglove_msgs::SceneEntityDeletion::MATCHING_ID; result.id=id; result.timestamp=stamp; return result;
@@ -180,12 +188,10 @@ class Member::Impl {
     }
     if (kind==RobotModelKind::kFs150) {
       subscribeInput<mavros_msgs::State>(node,"state",space+"/mavros/state",[data](const mavros_msgs::StateConstPtr& msg) {
-        auto stamp=msg->header.stamp.isZero()?ros::Time::now():msg->header.stamp;
-        std::lock_guard<std::mutex> lock(data->mutex);data->state.armed=msg->armed;data->state.state_stamp=stamp;data->state.state_available=true;
+        data->observeFlight(*msg);
       });
       subscribeInput<mavros_msgs::ExtendedState>(node,"extendedState",space+"/mavros/extended_state",[data](const mavros_msgs::ExtendedStateConstPtr& msg) {
-        const auto now=ros::Time::now();std::lock_guard<std::mutex> lock(data->mutex);
-        data->state.landed=msg->landed_state;data->state.extended_stamp=now;data->state.extended_available=true;
+        data->observeLanded(*msg);
       });
     } else {
       subscribeInput<geometry_msgs::Twist>(node,"cmdVel",space+"/cmd_vel",[data](const geometry_msgs::TwistConstPtr& msg) {
