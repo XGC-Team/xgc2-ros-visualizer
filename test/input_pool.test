@@ -1,0 +1,4 @@
+<launch>
+  <test test-name="input_pool" pkg="xgc2_ros_visualizer"
+        type="input_pool_test" time-limit="45.0" />
+</launch>

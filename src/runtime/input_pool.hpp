@@ -17,8 +17,10 @@ class InputPool {
   void stop();
   void rethrowFailure();
  private:
+  class WakeQueue;
+  void wakeWorkers();
   std::atomic<bool> stopping_{false};
-  std::vector<std::unique_ptr<ros::CallbackQueue>> queues_;
+  std::vector<std::unique_ptr<WakeQueue>> queues_;
   std::vector<std::thread> workers_;
   std::mutex failure_mutex_;
   std::exception_ptr failure_;
