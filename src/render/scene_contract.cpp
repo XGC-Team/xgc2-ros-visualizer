@@ -121,14 +121,12 @@ std::string normalizedFrameLabel(const std::string& frame_id) {
     return normalized;
 }
 
-bool isFreshCanonicalSample(const CanonicalPoseSample& source, const ros::Time& now, double timeout_sec) {
-    if (!source.available || source.stamp.isZero()) {
-        return false;
-    }
-    if (timeout_sec <= 0.0) {
-        return true;
-    }
-    return now - source.stamp <= ros::Duration(timeout_sec);
+bool isUsableCanonicalSample(const CanonicalPoseSample& source) {
+    const auto& p = source.pose.position;
+    const auto& q = source.pose.orientation;
+    return source.available && !source.stamp.isZero() && std::isfinite(p.x) && std::isfinite(p.y) &&
+           std::isfinite(p.z) && std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) &&
+           std::isfinite(q.w);
 }
 
 bool canonicalROSIdentifier(const std::string& value) {
@@ -911,12 +909,11 @@ bool isWorldFixedFrame(const std::string& frame_id) {
     return normalizedFrameLabel(frame_id) == "world";
 }
 
-CanonicalWorldPose selectSlotVisualizationWorldPose(RobotModelKind kind, const CanonicalPoseSample& pose,
-                                                     const ros::Time& now, double timeout_sec) {
+CanonicalWorldPose selectSlotVisualizationWorldPose(RobotModelKind kind, const CanonicalPoseSample& pose) {
     CanonicalWorldPose selected;
     const bool fs150_fused_local_frame =
         kind == RobotModelKind::kFs150 && (pose.frame_id == "map" || pose.frame_id == "/map");
-    if (kind == RobotModelKind::kNone || !isFreshCanonicalSample(pose, now, timeout_sec) ||
+    if (kind == RobotModelKind::kNone || !isUsableCanonicalSample(pose) ||
         (!isWorldFixedFrame(pose.frame_id) && !fs150_fused_local_frame)) {
         return selected;
     }
@@ -929,26 +926,23 @@ CanonicalWorldPose selectSlotVisualizationWorldPose(RobotModelKind kind, const C
 
 CanonicalWorldPose selectUavHeightProjectionWorldPose(HeightProjectionView view,
                                                        const CanonicalPoseSample& local_position,
-                                                       const CanonicalPoseSample& vrpn_already_offset,
-                                                       const ros::Time& now, double timeout_sec) {
+                                                       const CanonicalPoseSample& vrpn_already_offset) {
     switch (view) {
         case HeightProjectionView::kLocalPosition:
-            return selectSlotVisualizationWorldPose(RobotModelKind::kFs150, local_position, now, timeout_sec);
+            return selectSlotVisualizationWorldPose(RobotModelKind::kFs150, local_position);
         case HeightProjectionView::kVrpn:
-            return selectSlotVisualizationWorldPose(RobotModelKind::kScout, vrpn_already_offset, now, timeout_sec);
+            return selectSlotVisualizationWorldPose(RobotModelKind::kScout, vrpn_already_offset);
         default:
             return CanonicalWorldPose{};
     }
 }
 
 CanonicalWorldPose selectArIdentityWorldPose(RobotModelKind kind, const CanonicalPoseSample& canonical,
-                                               const CanonicalPoseSample& vrpn_already_offset, const ros::Time& now,
-                                               double timeout_sec) {
+                                               const CanonicalPoseSample& vrpn_already_offset) {
     if (kind == RobotModelKind::kFs150) {
-        return selectUavHeightProjectionWorldPose(HeightProjectionView::kVrpn, canonical, vrpn_already_offset, now,
-                                                     timeout_sec);
+        return selectUavHeightProjectionWorldPose(HeightProjectionView::kVrpn, canonical, vrpn_already_offset);
     }
-    return selectSlotVisualizationWorldPose(kind, canonical, now, timeout_sec);
+    return selectSlotVisualizationWorldPose(kind, canonical);
 }
 
 geometry_msgs::TransformStamped worldFixedFrameRoot(const std::string& frame_id, const ros::Time& stamp) {

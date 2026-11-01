@@ -307,7 +307,7 @@ class Member::Impl {
     bool& present=image?height_ar_present:height_present;
     ros::Time& stamp=image?height_ar_stamp:height_stamp;
     auto& entity=image?height_ar_entity:height_entity;
-    auto pose=selectUavHeightProjectionWorldPose(image?HeightProjectionView::kVrpn:HeightProjectionView::kLocalPosition,canonical,ar,context.now,profile.animation.pose_timeout);
+    auto pose=selectUavHeightProjectionWorldPose(image?HeightProjectionView::kVrpn:HeightProjectionView::kLocalPosition,canonical,ar);
     if(pose.found) {
       if(!present||stamp!=pose.stamp) {
         entity=uavHeightProjectionEntity(profile.scene_model,pose.pose.position,pose.stamp,profile.frame_id,sceneColorFromHex(profile.height_projection_color));
@@ -320,11 +320,11 @@ class Member::Impl {
     }
   }
   void tickScene(const TickContext& context,TickBatch& batch,const std::array<bool,kChannelCount>& due) {
-    const auto& now=context.now;const auto kind=profile.modelKind();const double timeout=profile.animation.pose_timeout;
+    const auto& now=context.now;const auto kind=profile.modelKind();
     RobotState sample;{std::lock_guard<std::mutex> lock(input->mutex);sample=input->state;}
     const auto canonical=sample.pose.sample(),ar=sample.ar.sample();
-    auto pose=selectSlotVisualizationWorldPose(kind,canonical,now,timeout);
-    auto ar_pose=selectArIdentityWorldPose(kind,canonical,ar,now,timeout);
+    auto pose=selectSlotVisualizationWorldPose(kind,canonical);
+    auto ar_pose=selectArIdentityWorldPose(kind,canonical,ar);
     const auto& publication=profile.publication;
     const bool transforms=context.transforms&&publication.transforms;
     const bool scene=context.scene&&publication.scene;

@@ -129,7 +129,7 @@ World boundary topics remain `/xgc/world_boundary`, `/xgc/world_boundary/ar`,
 
 3D FS150 reads its fused `/<namespace>/mavros/local_position/pose`; ground robots
 read canonical `/<namespace>/pose`. AR reads the exact frozen source with its
-world offset once. Source stamps, finite/frame/freshness checks, the Scout body
+world offset once. Source stamps, finite/frame checks, the Scout body
 height, ground-path z=0, raw AR quaternion and the off/ground/walls semantics are
 preserved. Rotor state reads MAVROS state/extended-state; ground wheel animation
 reads canonical twist, with cmd_vel as the existing fallback. The server never

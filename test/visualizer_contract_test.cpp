@@ -589,7 +589,7 @@ TEST(CanonicalWorldPose, AcceptsOnlyTheKindSpecificSlotViewerSample) {
     pose.frame_id = "world";
 
     const CanonicalWorldPose selected =
-        selectSlotVisualizationWorldPose(RobotModelKind::kScout, pose, now, 0.5);
+        selectSlotVisualizationWorldPose(RobotModelKind::kScout, pose);
     ASSERT_TRUE(selected.found);
     EXPECT_EQ(selected.stamp, now);
     EXPECT_EQ(selected.frame_id, "world");
@@ -598,35 +598,43 @@ TEST(CanonicalWorldPose, AcceptsOnlyTheKindSpecificSlotViewerSample) {
     CanonicalPoseSample map_pose = pose;
     map_pose.frame_id = "map";
     const CanonicalWorldPose fs150_map =
-        selectSlotVisualizationWorldPose(RobotModelKind::kFs150, map_pose, now, 0.5);
+        selectSlotVisualizationWorldPose(RobotModelKind::kFs150, map_pose);
     ASSERT_TRUE(fs150_map.found);
     EXPECT_EQ(fs150_map.frame_id, "world");
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kScout, map_pose, now, 0.5).found);
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kMecanum, map_pose, now, 0.5).found);
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kScout, map_pose).found);
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kMecanum, map_pose).found);
 
     CanonicalPoseSample namespaced_map = pose;
     namespaced_map.frame_id = "uav1/map";
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, namespaced_map, now, 0.5).found);
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, namespaced_map).found);
 
     CanonicalPoseSample odom_pose = pose;
     odom_pose.frame_id = "odom";
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, odom_pose, now, 0.5).found);
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, odom_pose).found);
 
     CanonicalPoseSample mavros_local = pose;
     mavros_local.frame_id = "uav1/local_origin";
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, mavros_local, now, 0.5).found);
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, mavros_local).found);
 
     CanonicalPoseSample missing;
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, missing, now, 0.5).found);
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, missing).found);
 
     CanonicalPoseSample zero_stamp = pose;
     zero_stamp.stamp = ros::Time();
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, zero_stamp, now, 0.5).found);
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, zero_stamp).found);
 
     CanonicalPoseSample stale = pose;
-    stale.stamp = ros::Time(9, 0);
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, stale, now, 0.5).found);
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kNone, pose, now, 0.5).found);
+    stale.stamp = ros::Time(3, 0);  // More than the observed six-second cross-host skew.
+    const auto older = selectSlotVisualizationWorldPose(RobotModelKind::kFs150, stale);
+    ASSERT_TRUE(older.found);
+    EXPECT_EQ(older.stamp, stale.stamp);
+    CanonicalPoseSample nonfinite = pose;
+    nonfinite.pose.position.x = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, nonfinite).found);
+    nonfinite = pose;
+    nonfinite.pose.orientation.w = std::numeric_limits<double>::infinity();
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, nonfinite).found);
+    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kNone, pose).found);
 
     EXPECT_FALSE(isWorldFixedFrame("map"));
     EXPECT_FALSE(isWorldFixedFrame("odom"));
@@ -782,11 +790,10 @@ TEST(UavHeightProjection, SplitsLocalPositionAndOffsetVrpnWithoutFallback) {
     const geometry_msgs::Pose twice = applyExperimentWorldOffsetOnce(vrpn_offset.pose, offset);
     EXPECT_DOUBLE_EQ(twice.position.x, 20.0);
 
-    const ros::Time now(10, 200000000);
     const CanonicalWorldPose three_d = selectUavHeightProjectionWorldPose(
-        HeightProjectionView::kLocalPosition, local, vrpn_offset, now, 0.5);
+        HeightProjectionView::kLocalPosition, local, vrpn_offset);
     const CanonicalWorldPose ar = selectUavHeightProjectionWorldPose(
-        HeightProjectionView::kVrpn, local, vrpn_offset, now, 0.5);
+        HeightProjectionView::kVrpn, local, vrpn_offset);
     ASSERT_TRUE(three_d.found);
     ASSERT_TRUE(ar.found);
     EXPECT_DOUBLE_EQ(three_d.pose.position.x, 1.0);
@@ -795,17 +802,17 @@ TEST(UavHeightProjection, SplitsLocalPositionAndOffsetVrpnWithoutFallback) {
     EXPECT_DOUBLE_EQ(ar.pose.position.z, 11.0);
 
     CanonicalPoseSample stale_local = local;
-    stale_local.stamp = ros::Time(9, 0);
-    EXPECT_FALSE(selectUavHeightProjectionWorldPose(HeightProjectionView::kLocalPosition, stale_local, vrpn_offset,
-                                                    now, 0.5)
-                     .found);
-    EXPECT_TRUE(selectUavHeightProjectionWorldPose(HeightProjectionView::kVrpn, stale_local, vrpn_offset, now, 0.5)
+    stale_local.stamp = ros::Time(3, 0);
+    const auto older_local = selectUavHeightProjectionWorldPose(HeightProjectionView::kLocalPosition, stale_local, vrpn_offset);
+    ASSERT_TRUE(older_local.found);
+    EXPECT_EQ(older_local.stamp, stale_local.stamp);
+    EXPECT_TRUE(selectUavHeightProjectionWorldPose(HeightProjectionView::kVrpn, stale_local, vrpn_offset)
                     .found);
 
     CanonicalPoseSample missing_vrpn;
-    EXPECT_TRUE(selectUavHeightProjectionWorldPose(HeightProjectionView::kLocalPosition, local, missing_vrpn, now, 0.5)
+    EXPECT_TRUE(selectUavHeightProjectionWorldPose(HeightProjectionView::kLocalPosition, local, missing_vrpn)
                     .found);
-    EXPECT_FALSE(selectUavHeightProjectionWorldPose(HeightProjectionView::kVrpn, local, missing_vrpn, now, 0.5).found);
+    EXPECT_FALSE(selectUavHeightProjectionWorldPose(HeightProjectionView::kVrpn, local, missing_vrpn).found);
 
     const auto color = sceneColorFromHex("#123abc");
     const auto three_d_entity =
@@ -1046,18 +1053,18 @@ TEST(ArIdentity, ImagePaneUsesOffsetVrpnAndIgnoresFusedLocal) {
     vrpn.pose.position.y = 26.0;
     vrpn.pose.position.z = 11.0;
     vrpn.pose.orientation.w = 1.0;
-    vrpn.stamp = ros::Time(10, 0);
+    vrpn.stamp = ros::Time(3, 0);
     vrpn.frame_id = "world";
 
-    const ros::Time now(10, 200000000);
     const CanonicalWorldPose uav_ar =
-        selectArIdentityWorldPose(RobotModelKind::kFs150, local, vrpn, now, 0.5);
+        selectArIdentityWorldPose(RobotModelKind::kFs150, local, vrpn);
     ASSERT_TRUE(uav_ar.found);
+    EXPECT_EQ(uav_ar.stamp, vrpn.stamp);
     EXPECT_DOUBLE_EQ(uav_ar.pose.position.x, 15.0);
     EXPECT_DOUBLE_EQ(uav_ar.pose.position.z, 11.0);
 
     CanonicalPoseSample missing_vrpn;
-    EXPECT_FALSE(selectArIdentityWorldPose(RobotModelKind::kFs150, local, missing_vrpn, now, 0.5).found);
+    EXPECT_FALSE(selectArIdentityWorldPose(RobotModelKind::kFs150, local, missing_vrpn).found);
 
     CanonicalPoseSample ugv;
     ugv.available = true;
@@ -1068,7 +1075,7 @@ TEST(ArIdentity, ImagePaneUsesOffsetVrpnAndIgnoresFusedLocal) {
     ugv.stamp = ros::Time(10, 0);
     ugv.frame_id = "world";
     const CanonicalWorldPose scout_ar =
-        selectArIdentityWorldPose(RobotModelKind::kScout, ugv, missing_vrpn, now, 0.5);
+        selectArIdentityWorldPose(RobotModelKind::kScout, ugv, missing_vrpn);
     ASSERT_TRUE(scout_ar.found);
     EXPECT_DOUBLE_EQ(scout_ar.pose.position.x, 4.0);
 }

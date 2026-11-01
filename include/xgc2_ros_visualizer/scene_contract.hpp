@@ -248,26 +248,23 @@ struct CanonicalWorldPose {
     std::string frame_id;
 };
 
-// Accept the kind-specific single viewer pose, or nothing. timeout_sec is a
-// freshness window on that one sample; it does not select a substitute source.
+// Accept the kind-specific available, finite, source-stamped pose, or nothing.
+// Rendering does not compare the source clock with the viewer clock.
 // FS150 accepts only MAVROS `map` (or world for a direct contract test/source);
 // ground vehicles continue to require world.
-CanonicalWorldPose selectSlotVisualizationWorldPose(RobotModelKind kind, const CanonicalPoseSample& pose,
-                                                     const ros::Time& now, double timeout_sec);
+CanonicalWorldPose selectSlotVisualizationWorldPose(RobotModelKind kind, const CanonicalPoseSample& pose);
 
 // 3D uses fused local_position; AR uses the already-offset VRPN sample. Neither
-// view substitutes the other source when that sample is missing or stale.
+// view substitutes the other source when that sample is missing or invalid.
 CanonicalWorldPose selectUavHeightProjectionWorldPose(HeightProjectionView view,
                                                     const CanonicalPoseSample& local_position,
-                                                    const CanonicalPoseSample& vrpn_already_offset,
-                                                    const ros::Time& now, double timeout_sec);
+                                                    const CanonicalPoseSample& vrpn_already_offset);
 
 // Image-pane identity: FS150 uses already-offset VRPN; Scout/Mecanum use the
-// same canonical `/pose` as 3D. Missing/stale samples are skipped, never
+// same canonical `/pose` as 3D. Missing/invalid samples are skipped, never
 // replaced with fused local_position.
 CanonicalWorldPose selectArIdentityWorldPose(RobotModelKind kind, const CanonicalPoseSample& canonical,
-                                               const CanonicalPoseSample& vrpn_already_offset,
-                                               const ros::Time& now, double timeout_sec);
+                                               const CanonicalPoseSample& vrpn_already_offset);
 
 // Identity child of the Fixed Frame. Latched on /tf_static so Lichtblick 3D can
 // create `world` without plant /tf; RViz also consumes /tf_static. Displays
