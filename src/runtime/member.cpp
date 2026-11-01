@@ -270,7 +270,7 @@ class Member::Impl {
       // The armed fact belongs to this member; its source clock is not the renderer clock.
       state.rotors_active=sample.state_available&&sample.armed;
       state.rotor_speed_rad_s=a.rotor_airborne;
-      if(sample.extended_available&&fresh(sample.extended_stamp,now,a.state_timeout)) {
+      if(sample.extended_available) {
         if(sample.landed==mavros_msgs::ExtendedState::LANDED_STATE_ON_GROUND) state.rotor_speed_rad_s=a.rotor_ground;
         else if(sample.landed==mavros_msgs::ExtendedState::LANDED_STATE_TAKEOFF||sample.landed==mavros_msgs::ExtendedState::LANDED_STATE_LANDING) state.rotor_speed_rad_s=a.rotor_transition;
       }
@@ -509,7 +509,8 @@ Json::Value Member::peerStatus() const {
   if (p.profile.remote_sources.count("pose")) {
     std::lock_guard<std::mutex> lock(p.input->mutex);
     result["topic"]=p.profile.pose_topic;
-    result["state"]=(p.input->state.pose.available && fresh(p.input->state.pose.stamp,ros::Time::now(),p.profile.animation.pose_timeout))?"connected":"waiting for topic";
+    // A retained pose proves receipt, not a live remote publisher or connection.
+    result["state"]=p.input->state.pose.available?"sample received":"no sample received";
     return result;
   }
   const auto publishers=p.subscribers.empty()?0:p.subscribers.front().getNumPublishers();

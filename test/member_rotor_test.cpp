@@ -11,11 +11,11 @@ namespace xgc2_ros_visualizer {
 
 struct MemberTestAccess {
   static std::shared_ptr<RobotInput> input(Member& member) { return member.impl_->input; }
-  static void pose(const std::shared_ptr<RobotInput>& input) {
+  static void pose(const std::shared_ptr<RobotInput>& input,const ros::Time& stamp=ros::Time(94)) {
     std::lock_guard<std::mutex> lock(input->mutex);
     input->state.pose.available=true;
     input->state.pose.frame=2; // FS150 local map frame
-    input->state.pose.stamp=ros::Time(94);
+    input->state.pose.stamp=stamp;
     input->state.pose.pose.orientation.w=1;
   }
   static void flight(const std::shared_ptr<RobotInput>& input,bool available,bool armed,const ros::Time& stamp) {
@@ -23,6 +23,12 @@ struct MemberTestAccess {
     input->state.state_available=available;
     input->state.armed=armed;
     input->state.state_stamp=stamp;
+  }
+  static void landed(const std::shared_ptr<RobotInput>& input,bool available,std::uint8_t state,const ros::Time& receipt) {
+    std::lock_guard<std::mutex> lock(input->mutex);
+    input->state.extended_available=available;
+    input->state.landed=state;
+    input->state.extended_stamp=receipt;
   }
 };
 
@@ -89,6 +95,44 @@ TEST_F(MemberRotor, AlignedArmedFactAdvancesAndDisarmedOrUnknownDoesNot) {
   EXPECT_DOUBLE_EQ(armed,tick(member,ros::Time(100,300000000)));
   MemberTestAccess::flight(input,false,true,ros::Time(100));
   EXPECT_DOUBLE_EQ(armed,tick(member,ros::Time(100,400000000)));
+}
+
+TEST_F(MemberRotor, GroundAndAirSpeedUseRetainedLandedFactAfterReceiptWindow) {
+  const auto selected=frozenProfile("uav3");
+  auto phase=[&](bool available,std::uint8_t landed) {
+    Member member(selected);
+    const auto input=MemberTestAccess::input(member);
+    MemberTestAccess::pose(input);
+    MemberTestAccess::flight(input,true,true,ros::Time(94));
+    // This field records local receipt time, not the ExtendedState header.
+    MemberTestAccess::landed(input,available,landed,ros::Time(94));
+    tick(member,ros::Time(100));
+    return tick(member,ros::Time(100,100000000));
+  };
+  const auto ground=phase(true,mavros_msgs::ExtendedState::LANDED_STATE_ON_GROUND);
+  const auto air=phase(true,mavros_msgs::ExtendedState::LANDED_STATE_IN_AIR);
+  const auto takeoff=phase(true,mavros_msgs::ExtendedState::LANDED_STATE_TAKEOFF);
+  const auto landing=phase(true,mavros_msgs::ExtendedState::LANDED_STATE_LANDING);
+  EXPECT_NEAR(ground,std::sin(selected.animation.rotor_ground*0.1/2),1e-8);
+  EXPECT_NEAR(air,std::sin(selected.animation.rotor_airborne*0.1/2),1e-8);
+  EXPECT_NEAR(takeoff,std::sin(std::fmod(selected.animation.rotor_transition*0.1,2*M_PI)/2),1e-8);
+  EXPECT_NEAR(landing,takeoff,1e-8);
+  EXPECT_NE(ground,air);
+  // Without an extended state, preserve the existing default speed tier.
+  EXPECT_NEAR(air,phase(false,mavros_msgs::ExtendedState::LANDED_STATE_ON_GROUND),1e-8);
+}
+
+TEST_F(MemberRotor, RemotePoseStatusReportsReceiptNotConnectionOrSourceClockAge) {
+  Member member(frozenProfile("uav3"));
+  const auto input=MemberTestAccess::input(member);
+  EXPECT_EQ("no sample received",member.peerStatus()["state"].asString());
+  MemberTestAccess::pose(input,ros::Time::now()-ros::Duration(6));
+  EXPECT_EQ("sample received",member.peerStatus()["state"].asString());
+  // A retained sample is not proof of a currently connected publisher; this
+  // member has no activated subscriber in the fixture.
+  EXPECT_NE("connected",member.peerStatus()["state"].asString());
+  MemberTestAccess::pose(input,ros::Time::now());
+  EXPECT_EQ("sample received",member.peerStatus()["state"].asString());
 }
 
 TEST_F(MemberRotor, RetiredMemberRetractsAndReplacementHasNoOldFlightOrPhase) {
