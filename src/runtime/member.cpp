@@ -267,7 +267,8 @@ class Member::Impl {
     const auto kind=profile.modelKind();
     if(kind==RobotModelKind::kFs150) {
       UavVisualState state;state.name=profile.scene_model;state.pose=pose.pose;state.stamp=now;
-      state.rotors_active=sample.state_available&&sample.armed&&fresh(sample.state_stamp,now,a.state_timeout);
+      // The armed fact belongs to this member; its source clock is not the renderer clock.
+      state.rotors_active=sample.state_available&&sample.armed;
       state.rotor_speed_rad_s=a.rotor_airborne;
       if(sample.extended_available&&fresh(sample.extended_stamp,now,a.state_timeout)) {
         if(sample.landed==mavros_msgs::ExtendedState::LANDED_STATE_ON_GROUND) state.rotor_speed_rad_s=a.rotor_ground;

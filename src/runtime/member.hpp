@@ -100,6 +100,7 @@ class Member {
   Json::Value peerStatus() const;
 
  private:
+  friend struct MemberTestAccess;
   class Impl;
   std::unique_ptr<Impl> impl_;
 };

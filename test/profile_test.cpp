@@ -258,6 +258,12 @@ TEST(InstanceInput, FrozenHilRemoteArSourceWinsWithoutLocalOrCameraFallback) {
   const auto spec=projectInstanceInput(value);
   ASSERT_EQ(spec.robots.size(),8U);
   const auto& hil=spec.robots.at("uav3");
+  // The physical and simulated members both use their selected flight-state
+  // source for armed; neither derives it from pose or the member kind.
+  EXPECT_EQ(hil.remote_sources.at("state").key,
+            "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-03/state");
+  EXPECT_EQ(spec.robots.at("uav2").remote_sources.at("state").key,
+            "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-02/state");
   EXPECT_TRUE(hil.ar_pose_topic.empty());
   EXPECT_EQ(hil.ar_path_topic,"ar_path");
   EXPECT_EQ(hil.remote_sources.at("arPose").key,
