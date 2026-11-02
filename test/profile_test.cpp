@@ -302,6 +302,72 @@ TEST(InstanceInput, FrozenHilRemoteArSourceWinsWithoutLocalOrCameraFallback) {
   value["settings"]["robotProfiles"]["uav3"]["state"]["sources"]["arPose"]["key"]="run/*";
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument); // never fall back to ROS
 }
+TEST(InstanceInput, GazeboSimulationSelectsTheFrozenTrackerOverTheXSimRelay) {
+  auto value=envelope();
+  addRobot(value,fullRobot("uav1"));
+  addRobot(value,fullRobot("uav2"));
+  // Frozen rows arrive reversed: the tracker is selected by slotId and
+  // namespace, never by the display array position.
+  auto held=value["context"]["robots"][0];
+  value["context"]["robots"][0]=value["context"]["robots"][1];
+  value["context"]["robots"][1]=held;
+  for(Json::ArrayIndex i=0;i<value["context"]["robots"].size();++i) {
+    const auto name=value["context"]["robots"][i]["namespace"].asString().substr(1);
+    value["context"]["robots"][i]["profile"]["parameters"]["mocap_rigid_body"]="tracker_"+name;
+  }
+  auto& profiles=value["settings"]["robotProfiles"];
+  profiles["uav1"]["labels"]["color"]="#abcdef";
+  profiles["uav1"]["state"]["sources"]["arPose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
+  profiles["uav1"]["state"]["sources"]["pose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
+  profiles["uav2"]["state"]["sources"]["arPose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav2/measurement\"}");
+  value["context"]["scene"]["simulator"]="gazebo";
+  const auto gazebo=projectInstanceInput(value);
+  const auto& uav1=gazebo.robots.at("uav1");
+  EXPECT_EQ(uav1.ar_pose_topic,"/vrpn_client_node/tracker_uav1/pose");
+  EXPECT_EQ(uav1.remote_sources.count("arPose"),0U);
+  EXPECT_EQ(uav1.remote_sources.at("pose").key,"run/uav1/pose");
+  EXPECT_EQ(uav1.labels.color,"#abcdef");
+  EXPECT_EQ(gazebo.robots.at("uav2").ar_pose_topic,"/vrpn_client_node/tracker_uav2/pose");
+  // An explicit local AR topic stays authoritative in Gazebo, including an
+  // empty value that intentionally disables AR for this member.
+  profiles["uav1"]["state"]["arPoseTopic"]="/explicit/mocap/pose";
+  EXPECT_EQ(projectInstanceInput(value).robots.at("uav1").ar_pose_topic,"/explicit/mocap/pose");
+  profiles["uav1"]["state"]["arPoseTopic"]="";
+  const auto disabled=projectInstanceInput(value).robots.at("uav1");
+  EXPECT_TRUE(disabled.ar_pose_topic.empty());
+  EXPECT_TRUE(disabled.ar_path_topic.empty());
+  profiles["uav1"]["state"].removeMember("arPoseTopic");
+  // XSim keeps the selected remote AR relay.
+  value["context"]["scene"]["simulator"]="xsim";
+  const auto xsim=projectInstanceInput(value).robots.at("uav1");
+  EXPECT_TRUE(xsim.ar_pose_topic.empty());
+  EXPECT_EQ(xsim.remote_sources.at("arPose").key,"run/uav1/measurement");
+  // Physical and rotor members keep their explicit remote semantics, and the
+  // remote stream still wins over an obsolete local topic beside it.
+  value["context"]["runMode"]="physical";
+  profiles["uav1"]["state"]["arPoseTopic"]="/local/invented/pose";
+  const auto physical=projectInstanceInput(value).robots.at("uav1");
+  EXPECT_TRUE(physical.ar_pose_topic.empty());
+  EXPECT_EQ(physical.remote_sources.at("arPose").key,"run/uav1/measurement");
+  value["context"]["runMode"]="simulation";
+  value["context"]["scene"]["simulator"]="gazebo";
+  for(auto& row: value["context"]["robots"])
+    if(row["namespace"]=="/uav1") row["profile"]["id"]="px4.mocap-rotor.ros1.v1";
+  const auto rotor=projectInstanceInput(value).robots.at("uav1");
+  EXPECT_EQ(rotor.remote_sources.at("arPose").key,"run/uav1/measurement");
+  // A mixed hybrid Run keeps the member owner: the physical member keeps its
+  // remote AR relay while only the simulated member derives the frozen tracker.
+  for(auto& row: value["context"]["robots"])
+    if(row["namespace"]=="/uav1") row["profile"]["id"]="px4-multirotor.xsim.ros";
+  profiles["uav1"]["state"].removeMember("arPoseTopic");
+  value["context"]["runMode"]="hybrid";
+  value["robots"][0]["hybridSource"]="physical";
+  const auto hybrid=projectInstanceInput(value);
+  const auto& hybrid_physical=hybrid.robots.at("uav1");
+  EXPECT_TRUE(hybrid_physical.ar_pose_topic.empty());
+  EXPECT_EQ(hybrid_physical.remote_sources.at("arPose").key,"run/uav1/measurement");
+  EXPECT_EQ(hybrid.robots.at("uav2").ar_pose_topic,"/vrpn_client_node_simulation/tracker_uav2/pose");
+}
 TEST(InstanceInput, FrozenLocalAndSimulationSourcesKeepTheirOwnProvenance) {
   const auto captured=hilInput();
   auto physical=captured;

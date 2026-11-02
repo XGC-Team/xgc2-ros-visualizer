@@ -93,6 +93,11 @@ void arSource(Json::Value& profile, const Json::Value& robot, const Json::Value&
     throw std::invalid_argument("path must be an object");
   if (profile["state"].isNull()) profile["state"] = Json::Value(Json::objectValue);
   auto& state = profile["state"];
+  // A Gazebo plant derives AR from the frozen tracker. The remote arPose relay
+  // is the XSim observation stream, so it is not that member's AR source here;
+  // keep the profile's other relays and any explicit local topic.
+  const bool gazebo = source == "simulation" && !rotor && simulator == "gazebo";
+  if (gazebo && state["sources"].isObject()) state["sources"].removeMember("arPose");
   // An explicitly selected remote AR stream is already the declared display
   // source. It is not a local VRPN subscription, it needs no invented tracker,
   // and it owns its coordinate transformation.
