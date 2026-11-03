@@ -118,7 +118,6 @@ def run(probe, long_test):
     time.sleep(max(0, started + 2 - time.monotonic()))
     probe.start_master()
     wait(lambda: bound(probe), 'late master was not bound', 10)
-    wait(lambda: '/late/path' in probe.registry()[1], 'pending relay was not activated')
     require(peer(probe) == 'waiting for topic', 'topic absence stopped the applied robot')
 
     import rospy
@@ -137,6 +136,7 @@ def run(probe, long_test):
     history = collections.deque(maxlen=64)
     observers = [rospy.Subscriber('/xgc/display/late/path', Path, displayed.append, queue_size=1),
                  rospy.Subscriber('/uav1/path', Path, history.append, queue_size=1)]
+    wait(lambda: '/late/path' in probe.registry()[1], 'display consumer did not activate the pending relay')
 
     def received(value):
         return (any(m.poses and m.poses[-1].pose.position.x == value for m in displayed)

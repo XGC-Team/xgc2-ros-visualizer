@@ -212,7 +212,7 @@ def run(probe, definition):
     require(receipt['changes']['scene'] and receipt['changes']['rebuilt'] == [] and receipt['changes']['added'] == [],
             'a scene switch is not a robot rebuild: %s' % receipt['changes'])
     wait(lambda: '/markers' in probe.registry()[0], 'the scene switch did not advertise the marker output')
-    require(all((peers[n].subscribed, peers[n].unsubscribed) == marks[n] for n in names), 'a scene switch touched robot inputs')
+    require(all((peers[n].subscribed, peers[n].unsubscribed) == marks[n] for n in names), 'a scene switch touched robot inputs: before=%s after=%s' % (marks, {n: (peers[n].subscribed, peers[n].unsubscribed) for n in names}))
     receipt = probe.rpc('PUT', '/v1/instances/' + run_id, saved)
     require(receipt['changes']['scene'] and receipt['changes']['rebuilt'] == [], 'the scene switch did not revert')
     wait(lambda: '/markers' not in probe.registry()[0], 'the marker output outlived its switch')

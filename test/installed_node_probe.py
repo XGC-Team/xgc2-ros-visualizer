@@ -199,9 +199,10 @@ def run(probe):
     rpc('GET', '/health', expected=404)
     rpc('GET', '/v1/xrpc/policy', expected=404)
 
-    # Four full-state types: subscribe without peers, forward original bytes,
-    # map/grid retain one snapshot for a late viewer; path/poses do not replay.
-    # All four stay subscribed after display peers leave.
+    # Four full-state types: every relay subscribes only while its display topic
+    # has a consumer. This probe's own AnyMsg recorders are the no-viewer consumer
+    # on each source. map/grid retain one latched snapshot for a late viewer;
+    # path/poses do not replay packets sent before their viewer existed.
     types = [PointCloud2, OccupancyGrid, Path, PoseArray]
     type_names = ['sensor_msgs/PointCloud2', 'nav_msgs/OccupancyGrid', 'nav_msgs/Path', 'geometry_msgs/PoseArray']
     sources = ['/probe/cloud', '/probe/grid', '/probe/path', '/probe/poses']
@@ -213,7 +214,8 @@ def run(probe):
         rospy.Subscriber(s, rospy.AnyMsg, lambda m, i=i: original[i].append(bytes(m._buff)), queue_size=100)
     foreign = instance(relays=relay_specs, scene=False)
     rpc('PUT', '/v1/instances/foreign-relay', foreign)
-    wait(lambda: all(p.get_num_connections() >= 2 for p in source_pubs), 'relay did not subscribe before a viewer')
+    wait(lambda: all(p.get_num_connections() == 1 for p in source_pubs),
+         'relay subscribed a source before a display consumer')
     rospy.set_param('/foreign/visual_robot_description', 'foreign-owned')
 
     def packets(count):
@@ -233,15 +235,38 @@ def run(probe):
                         sample = Pose(); sample.position.x = x; sample.orientation.w = 1; msg.poses.append(sample)
                 publisher.publish(msg)
             time.sleep(.01)
+    early = [rospy.Subscriber('/xgc/display' + s, rospy.AnyMsg,
+                              lambda m, i=i: displayed[i].append(bytes(m._buff)), queue_size=100)
+             for i, s in enumerate(sources[:2])]
+    wait(lambda: source_pubs[0].get_num_connections() == 2 and source_pubs[1].get_num_connections() == 2,
+         'snapshot viewers did not activate their relays')
+    require(source_pubs[2].get_num_connections() == 1 and source_pubs[3].get_num_connections() == 1,
+            'path/pose relay subscribed without a viewer')
     packets(20); time.sleep(.25)
-    peers = [rospy.Subscriber('/xgc/display' + s, rospy.AnyMsg, lambda m, i=i: displayed[i].append(bytes(m._buff)), queue_size=100) for i, s in enumerate(sources)]
+    wait(lambda: displayed[0] and displayed[1], 'active snapshot viewers received no source data')
+    require(all(sample in original[i] for i in (0, 1) for sample in displayed[i]),
+            'active snapshot relay changed serialized payload')
+    require(not displayed[2] and not displayed[3], 'path or poses relayed without a viewer')
+    for peer in early:
+        peer.unregister()
+    wait(lambda: all(p.get_num_connections() == 1 for p in source_pubs),
+         'snapshot viewers left their source subscriptions behind')
+    for samples in displayed:
+        samples.clear()
+    peers = [rospy.Subscriber('/xgc/display' + s, rospy.AnyMsg,
+                             lambda m, i=i: displayed[i].append(bytes(m._buff)), queue_size=100)
+             for i, s in enumerate(sources)]
     wait(lambda: all(peer.get_num_connections() for peer in peers), 'display publishers missing')
+    wait(lambda: all(p.get_num_connections() == 2 for p in source_pubs),
+         'reconnected viewers did not activate their source subscriptions')
     wait(lambda: len(displayed[0]) == 1 and len(displayed[1]) == 1,
-         'late display did not receive exactly one retained map/grid snapshot')
+         'reconnected viewers did not receive the retained snapshots')
+    require(all(displayed[i][0] in original[i] for i in (0, 1)),
+            'reconnected snapshot changed serialized payload')
     time.sleep(.15)
-    require(len(displayed[0]) == 1 and len(displayed[1]) == 1, 'snapshot replay repeated without a source update')
-    require(all(displayed[i][0] in original[i] for i in (0, 1)), 'retained snapshot changed serialized payload')
-    require(not displayed[2] and not displayed[3], 'path or poses replayed an already-published sample')
+    require(len(displayed[0]) == 1 and len(displayed[1]) == 1,
+            'reconnected snapshot replay repeated without a source update')
+    require(not displayed[2] and not displayed[3], 'path or poses replayed a pre-viewer sample')
     for samples in displayed:
         samples.clear()
     rate_table = copy.deepcopy(default_rates)
@@ -256,14 +281,16 @@ def run(probe):
     relay_counts = [len(samples) for samples in displayed]
     for peer in peers:
         peer.unregister()
-    wait(lambda: all(p.get_num_connections() >= 2 for p in source_pubs), 'disconnect removed source subscription')
+    wait(lambda: all(p.get_num_connections() == 1 for p in source_pubs),
+         'last display consumer did not release its source subscription')
     # A changed desired state is applied: one relay more, the others untouched.
     extra = dict(source='/probe/extra', topic='/xgc/display/probe/extra', messageType='nav_msgs/Path')
     changed = copy.deepcopy(foreign); changed['displayRelays'].append(extra)
     receipt = rpc('PUT', '/v1/instances/foreign-relay', changed)
     require(not receipt['unchanged'] and receipt['changes']['relaysAdded'] == 1 and receipt['changes']['relaysRemoved'] == 0
             and receipt['configuration']['desiredRevision'] == 2 and receipt['relayCount'] == 5, 'changed relay set not applied')
-    wait(lambda: all(p.get_num_connections() >= 2 for p in source_pubs), 'a relay change withdrew an unchanged relay')
+    wait(lambda: all(p.get_num_connections() == 1 for p in source_pubs),
+         'a relay change subscribed a source without a display consumer')
     receipt = rpc('PUT', '/v1/instances/foreign-relay', foreign)
     require(receipt['changes']['relaysRemoved'] == 1 and receipt['relayCount'] == 4, 'relay set not restored')
     require(rpc('PUT', '/v1/instances/foreign-relay', foreign)['unchanged'], 'retry was not a no-op')
