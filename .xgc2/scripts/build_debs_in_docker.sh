@@ -17,8 +17,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 test -n "$work_dir" && test -n "$output_dir"
-# An explicitly supplied SDK is an override for controlled offline builders.
-# Normally the SDK is built once into work_dir and verified/reused on later runs.
+# An explicit offline SDK is a declared dependency input. Otherwise use the
+# published Focal SDK; never compile a second Zenoh implementation here.
 external_sdk=0
 sdk_mount=()
 if [[ -n "$zenoh_prefix" ]]; then
@@ -52,7 +52,11 @@ set -eo pipefail
 echo "deb [trusted=yes arch=$(dpkg --print-architecture)] https://xgc2.apt.xiaokang.ink focal main" \
   >/etc/apt/sources.list.d/xgc2.list
 apt-get update
-apt-get install -y --no-install-recommends ros-noetic-xgc2-fs150-description ros-noetic-xgc2-scout-description ros-noetic-xgc2-mecanum-description libxgc2-xrpc-dev
+sdk_packages=()
+if [[ "$XGC2_EXTERNAL_ZENOHC" != 1 ]]; then
+  sdk_packages=(xgc2-zenoh=1.8.0-1~focal)
+fi
+apt-get install -y --no-install-recommends "${sdk_packages[@]}" ros-noetic-xgc2-fs150-description ros-noetic-xgc2-scout-description ros-noetic-xgc2-mecanum-description libxgc2-xrpc-dev
 chown "${HOST_UID}:${HOST_GID}" /work /out
 python3 -c 'import os,sys; os.setgid(int(os.environ["HOST_GID"])); os.setuid(int(os.environ["HOST_UID"])); os.execvp("bash", ["bash", "-c", sys.argv[1]])' '
 set -eo pipefail
@@ -63,9 +67,7 @@ command -v "$XGC2_BUILD_CXX" >/dev/null
 if [[ "$XGC2_EXTERNAL_ZENOHC" == 1 ]]; then
   sdk_prefix=/zenoh-sdk
 else
-  sdk_prefix=/work/zenoh-sdk
-  export CARGO_HOME=/work/zenoh-cargo
-  /source/.xgc2/scripts/build_zenoh_sdk.sh --work-dir /work/zenoh-build --install-prefix "$sdk_prefix"
+  sdk_prefix=/opt/xgc2/zenoh
 fi
 ros_prefix_path="${CMAKE_PREFIX_PATH:-/opt/ros/noetic}"
 ros_prefix_path="${ros_prefix_path//:/;}"

@@ -330,42 +330,18 @@ republished as raw ROS topics. Member messages are capped at 64 KiB and display
 messages at 1 MiB; malformed, truncated, trailing or oversized payloads are
 discarded before consumer callbacks and before any array-sized allocation.
 
-The Focal build image contains Rust 1.93.0 but no Zenoh C SDK. The product's
-builder automatically fetches the fixed Zenoh C 1.8.0 source commit, verifies
-its archive SHA-256, pins the Zenoh 1.8.0 dependency commit, and builds the
-checked-in Cargo locks using that toolchain. Downloads occur during SDK
-preparation; compilation runs offline. The verified SDK is cached in
-`<work-dir>/zenoh-sdk`; the product's CI and release jobs cache it per
-architecture and SDK recipe. The optional `--zenoh-prefix` / `XGC2_ZENOHC_PREFIX`
-is still available for a preprovisioned Focal-compatible 1.8.0 SDK. Zenoh is
-statically linked into the visualizer runtime, so the installed package does not
-need an SDK or separate Zenoh DSO. No SDK is compiled during robot deployment.
-The upstream prebuilt GNU binaries require a newer glibc than Focal.
+The controlled Focal builder installs the published `xgc2-zenoh=1.8.0-1~focal`
+package from production APT alongside its other build dependencies. CMake uses
+its `/opt/xgc2/zenoh` SDK and requires `zenohc` exactly 1.8.0. The component
+never downloads or compiles Zenoh source and has no source fallback.
 
-For local-swarm or another source-image build, this repository provides a
-standalone cached SDK stage. Build it once for the target architecture:
-
-```sh
-docker build -f .xgc2/Dockerfile.zenoh-sdk --target zenoh-sdk \
-  -t xgc2-visualizer-zenoh-sdk:1.8.0-focal .
-```
-
-The consuming Dockerfile may use the image as a stage and copy the build-only
-prefix into its visualizer build stage:
-
-```dockerfile
-FROM xgc2-visualizer-zenoh-sdk:1.8.0-focal AS visualizer-zenoh-sdk
-# In the existing Focal visualizer build stage:
-COPY --from=visualizer-zenoh-sdk /opt/xgc2/zenoh-sdk/ /opt/xgc2/zenoh-sdk/
-# Add /opt/xgc2/zenoh-sdk to the existing CMAKE_PREFIX_PATH before cmake.
-```
-
-Alternatively, a Dockerfile with this repository as a named BuildKit context
-can copy `.xgc2/scripts/build_zenoh_sdk.sh` and `.xgc2/zenoh-c-1.8.0/` into
-an isolated Focal build stage and run the script with `--work-dir` and
-`--install-prefix`; its output is the same prefix. Reuse that stage/cache; do
-not copy the SDK to the runtime image. The SDK recipe and its source/lock
-identity are recorded in [the build manifest](.xgc2/zenoh-c-1.8.0/README.md).
+The explicit `--zenoh-prefix` / `XGC2_ZENOHC_PREFIX` input remains available
+for an offline, preprovisioned Focal-compatible SDK of the same ABI. It is
+mounted read-only and consumed by the same CMake dependency contract. Zenoh
+is statically linked into the visualizer runtime; it adds a build dependency,
+not a runtime SDK requirement. Source runtime images consume their existing
+locked `xgc2-zenoh` installation through the same CMake package. No additional
+SDK build image, Cargo lock or dependency toolchain is owned by this component.
 
 The optional independent interop probe runs the actual onboarding sender against
 the receiver on two private ROS masters. In a Noetic environment with Python
