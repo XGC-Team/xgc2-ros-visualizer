@@ -2,6 +2,7 @@
 #include "descriptions.hpp"
 #include "../transport/zenoh_input.hpp"
 #include "../transport/demand.hpp"
+#include "../transport/source_gate.hpp"
 #include "../transport/ros_wire.hpp"
 #include <boost/make_shared.hpp>
 #include <xgc2_ros_visualizer/source_history.hpp>
@@ -153,11 +154,14 @@ class Member::Impl {
     if (remote==profile.remote_sources.end()) {
       subscribers.push_back(node.subscribe<Message>(topic,1,callback,ros::VoidConstPtr(),ros::TransportHints().tcpNoDelay()));
     } else {
-      auto gate=std::make_shared<RemoteGate>(remote->second.endpoint,remote->second.key,kMaxMemberWireBytes,
-          [callback](const std::uint8_t* bytes,std::size_t size) {
-            auto message=boost::make_shared<Message>();
-            if (decodeMemberWire(bytes,size,message.get())) callback(typename Message::ConstPtr(message));
-          });
+      auto gate=std::make_shared<SourceGate>([endpoint=remote->second.endpoint,key=remote->second.key,
+          callback]() -> std::shared_ptr<void> {
+        return std::shared_ptr<ZenohInput>(ZenohInput::open(endpoint,key,kMaxMemberWireBytes,
+            [callback](const std::uint8_t* bytes,std::size_t size) {
+              auto message=boost::make_shared<Message>();
+              if (decodeMemberWire(bytes,size,message.get())) callback(typename Message::ConstPtr(message));
+            }));
+      });
       remote_demand->add(source,gate);
     }
   }

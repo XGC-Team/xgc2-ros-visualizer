@@ -1,5 +1,5 @@
 #pragma once
-#include "remote_gate.hpp"
+#include "source_gate.hpp"
 #include <memory>
 #include <map>
 #include <mutex>
@@ -34,7 +34,7 @@ class DemandToken {
 };
 class MemberDemand final : public std::enable_shared_from_this<MemberDemand> {
  public:
-  void add(const std::string& source,std::shared_ptr<RemoteGate> gate) {
+  void add(const std::string& source,std::shared_ptr<SourceGate> gate) {
     std::lock_guard<std::mutex> lock(mutex_);
     gates_.push_back({source,std::move(gate),false});reconcile();
   }
@@ -50,7 +50,7 @@ class MemberDemand final : public std::enable_shared_from_this<MemberDemand> {
     gates_.clear();
   }
  private:
-  struct Entry {std::string source;std::shared_ptr<RemoteGate> gate;bool active;};
+  struct Entry {std::string source;std::shared_ptr<SourceGate> gate;bool active;};
   void reconcile() {
     for(auto& entry:gates_) {
       const bool wanted=!stopped_ && (shared_ || (entry.source=="pose" && pose_count_>0) ||
