@@ -326,7 +326,7 @@ republished as raw ROS topics. Member messages are capped at 64 KiB and display
 messages at 1 MiB; malformed, truncated, trailing or oversized payloads are
 discarded before consumer callbacks and before any array-sized allocation.
 
-The controlled Focal builder installs the published `xgc2-zenoh=1.8.0-1~focal`
+The controlled Focal builder installs the published `xgc2-zenoh=1.8.0-2~focal`
 package from production APT alongside its other build dependencies. CMake uses
 its `/opt/xgc2/zenoh` SDK and requires `zenohc` exactly 1.8.0. The component
 never downloads or compiles Zenoh source and has no source fallback.
