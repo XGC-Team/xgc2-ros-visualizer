@@ -302,7 +302,7 @@ TEST(InstanceInput, FrozenHilRemoteArSourceWinsWithoutLocalOrCameraFallback) {
   value["settings"]["robotProfiles"]["uav3"]["state"]["sources"]["arPose"]["key"]="run/*";
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument); // never fall back to ROS
 }
-TEST(InstanceInput, GazeboSimulationSelectsTheFrozenTrackerOverTheXSimRelay) {
+TEST(InstanceInput, GazeboUsesSelectedRemoteOrLocallyResolvedTracker) {
   auto value=envelope();
   addRobot(value,fullRobot("uav1"));
   addRobot(value,fullRobot("uav2"));
@@ -323,13 +323,15 @@ TEST(InstanceInput, GazeboSimulationSelectsTheFrozenTrackerOverTheXSimRelay) {
   value["context"]["scene"]["simulator"]="gazebo";
   const auto gazebo=projectInstanceInput(value);
   const auto& uav1=gazebo.robots.at("uav1");
-  EXPECT_EQ(uav1.ar_pose_topic,"/vrpn_client_node/tracker_uav1/pose");
-  EXPECT_EQ(uav1.remote_sources.count("arPose"),0U);
+  EXPECT_TRUE(uav1.ar_pose_topic.empty());
+  EXPECT_EQ(uav1.remote_sources.at("arPose").key,"run/uav1/measurement");
   EXPECT_EQ(uav1.remote_sources.at("pose").key,"run/uav1/pose");
   EXPECT_EQ(uav1.labels.color,"#abcdef");
-  EXPECT_EQ(gazebo.robots.at("uav2").ar_pose_topic,"/vrpn_client_node/tracker_uav2/pose");
-  // An explicit local AR topic stays authoritative in Gazebo, including an
-  // empty value that intentionally disables AR for this member.
+  EXPECT_EQ(gazebo.robots.at("uav2").remote_sources.at("arPose").key,"run/uav2/measurement");
+  // Without a remote AR source, the existing local Gazebo tracker and an
+  // explicitly selected local AR topic retain their ordinary semantics.
+  profiles["uav1"]["state"]["sources"].removeMember("arPose");
+  EXPECT_EQ(projectInstanceInput(value).robots.at("uav1").ar_pose_topic,"/vrpn_client_node/tracker_uav1/pose");
   profiles["uav1"]["state"]["arPoseTopic"]="/explicit/mocap/pose";
   EXPECT_EQ(projectInstanceInput(value).robots.at("uav1").ar_pose_topic,"/explicit/mocap/pose");
   profiles["uav1"]["state"]["arPoseTopic"]="";
@@ -337,6 +339,7 @@ TEST(InstanceInput, GazeboSimulationSelectsTheFrozenTrackerOverTheXSimRelay) {
   EXPECT_TRUE(disabled.ar_pose_topic.empty());
   EXPECT_TRUE(disabled.ar_path_topic.empty());
   profiles["uav1"]["state"].removeMember("arPoseTopic");
+  profiles["uav1"]["state"]["sources"]["arPose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
   // XSim keeps the selected remote AR relay.
   value["context"]["scene"]["simulator"]="xsim";
   const auto xsim=projectInstanceInput(value).robots.at("uav1");
@@ -355,11 +358,12 @@ TEST(InstanceInput, GazeboSimulationSelectsTheFrozenTrackerOverTheXSimRelay) {
     if(row["namespace"]=="/uav1") row["profile"]["id"]="px4.mocap-rotor.ros1.v1";
   const auto rotor=projectInstanceInput(value).robots.at("uav1");
   EXPECT_EQ(rotor.remote_sources.at("arPose").key,"run/uav1/measurement");
-  // A mixed hybrid Run keeps the member owner: the physical member keeps its
-  // remote AR relay while only the simulated member derives the frozen tracker.
+  // A mixed hybrid Run keeps each member's selected source. A simulated member
+  // without a remote source still derives its existing local tracker.
   for(auto& row: value["context"]["robots"])
     if(row["namespace"]=="/uav1") row["profile"]["id"]="px4-multirotor.xsim.ros";
   profiles["uav1"]["state"].removeMember("arPoseTopic");
+  profiles["uav2"]["state"]["sources"].removeMember("arPose");
   value["context"]["runMode"]="hybrid";
   value["robots"][0]["hybridSource"]="physical";
   const auto hybrid=projectInstanceInput(value);
@@ -367,6 +371,37 @@ TEST(InstanceInput, GazeboSimulationSelectsTheFrozenTrackerOverTheXSimRelay) {
   EXPECT_TRUE(hybrid_physical.ar_pose_topic.empty());
   EXPECT_EQ(hybrid_physical.remote_sources.at("arPose").key,"run/uav1/measurement");
   EXPECT_EQ(hybrid.robots.at("uav2").ar_pose_topic,"/vrpn_client_node_simulation/tracker_uav2/pose");
+}
+
+TEST(InstanceInput, GazeboSelectedRemoteCanonicalPoseIsNotReplacedByOldVrpnTopic) {
+  auto value=envelope();
+  addRobot(value,fullRobot("uav1"),"px4-multirotor.gazebo.vrpn","/uav1/pose");
+  value["context"]["scene"]["simulator"]="gazebo";
+  value["context"]["robots"][0]["profile"]["parameters"]["mocap_rigid_body"]="body_1";
+  value["settings"]["robotProfiles"]["uav1"]["state"]["sources"]["arPose"] =
+      parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
+  const auto profile=projectInstanceInput(value).robots.at("uav1");
+  EXPECT_TRUE(profile.ar_pose_topic.empty());
+  ASSERT_EQ(profile.remote_sources.count("arPose"),1U);
+  EXPECT_EQ(profile.remote_sources.at("arPose").key,"run/uav1/measurement");
+}
+
+TEST(InstanceInput, PhysicalZenohCanonicalPoseDoesNotApplyTheWorldOffsetTwice) {
+  auto value=envelope();
+  addRobot(value,fullRobot("uav1"),"px4-multirotor.physical.vrpn","/uav1/pose");
+  value["context"]["runMode"]="physical";
+  value["context"]["localizationOffset"]["x"]=1.25;
+  value["context"]["localizationOffset"]["y"]=0;
+  value["context"]["localizationOffset"]["z"]=0;
+  auto& params=value["context"]["robots"][0]["profile"]["parameters"];
+  params["zenoh_endpoint"]="tcp/192.0.2.10:17447";
+  params["localization_source"]="selected-physical-source";
+  const auto canonical=projectInstanceInput(value).robots.at("uav1");
+  EXPECT_EQ(canonical.ar_pose_topic,"/uav1/pose");
+  EXPECT_DOUBLE_EQ(canonical.world_offset[0],0.0);
+  // A distinct explicitly authored raw topic keeps its old transform.
+  value["settings"]["robotProfiles"]["uav1"]["state"]["arPoseTopic"]="/calibration/raw/pose";
+  EXPECT_DOUBLE_EQ(projectInstanceInput(value).robots.at("uav1").world_offset[0],1.25);
 }
 TEST(InstanceInput, FrozenLocalAndSimulationSourcesKeepTheirOwnProvenance) {
   const auto captured=hilInput();

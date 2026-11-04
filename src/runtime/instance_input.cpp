@@ -93,14 +93,9 @@ void arSource(Json::Value& profile, const Json::Value& robot, const Json::Value&
     throw std::invalid_argument("path must be an object");
   if (profile["state"].isNull()) profile["state"] = Json::Value(Json::objectValue);
   auto& state = profile["state"];
-  // A Gazebo plant derives AR from the frozen tracker. The remote arPose relay
-  // is the XSim observation stream, so it is not that member's AR source here;
-  // keep the profile's other relays and any explicit local topic.
-  const bool gazebo = source == "simulation" && !rotor && simulator == "gazebo";
-  if (gazebo && state["sources"].isObject()) state["sources"].removeMember("arPose");
   // An explicitly selected remote AR stream is already the declared display
-  // source. It is not a local VRPN subscription, it needs no invented tracker,
-  // and it owns its coordinate transformation.
+  // source for either simulator. It is not a local VRPN subscription, it
+  // needs no invented tracker, and it owns its coordinate transformation.
   const bool remote = state["sources"].isObject() && state["sources"].isMember("arPose");
   if (remote) {
     state.removeMember("arPoseTopic");
@@ -145,9 +140,21 @@ void arSource(Json::Value& profile, const Json::Value& robot, const Json::Value&
     state["arPoseTopic"] = "/vrpn_client_node" +
         (mode == "hybrid" ? "_" + source : "") + "/" + tracker + "/pose";
   }
-  // Apply the authored experiment world transform once for a local physical AR
-  // source. Remote and simulation sources never infer one.
-  if (source == "physical" || rotor) {
+  // A selected physical Adapter Zenoh output is already the world-projected
+  // canonical slot pose. An explicitly selected different local topic still
+  // uses the original physical-source transform below.
+  const auto projected_topic = frozenProfileParameter(frozen, "localization_pose_topic");
+  const bool projected_zenoh_pose = source == "physical" &&
+      !frozenProfileParameter(frozen, "zenoh_endpoint").empty() &&
+      !frozenProfileParameter(frozen, "localization_source").empty() &&
+      !projected_topic.empty() && state["arPoseTopic"].asString() == projected_topic;
+  if (projected_zenoh_pose) {
+    state["worldOffset"] = Json::Value(Json::arrayValue);
+    for (int i = 0; i < 3; ++i) state["worldOffset"].append(0.0);
+  }
+  // Apply the authored transform once for a local raw physical AR source.
+  // Remote, simulation and already-projected sources never infer one.
+  if ((source == "physical" || rotor) && !projected_zenoh_pose) {
     const auto& offset = context["localizationOffset"];
     Json::Value values(Json::arrayValue);
     for (int i = 0; i < 3; ++i) {
