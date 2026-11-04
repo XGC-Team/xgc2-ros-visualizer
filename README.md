@@ -259,18 +259,14 @@ workflow owns publication.
 A configured remote input consumes the raw ROS1 serialization bytes on one
 exact Zenoh key. There is no envelope, ROS graph discovery, local ROS publisher,
 implicit remapping, or fallback to the local topic when the key is silent. The
-sender must serialize the declared ROS1 type, connect to the visualizer's
-`listen` TCP endpoint, and disable scouting. The visualizer listens on that
-endpoint in Zenoh peer mode with multicast and gossip scouting disabled and no
-outbound connect endpoints. All remote member inputs and display relays across
-one visualizer process must use the same endpoint; they share one Zenoh
-session. The configured listener is opened when the instance is applied and
-remains available even with no output consumers, so sender connections do not
-depend on display demand. Exact-key subscriptions still exist only while their
-outputs have consumers. The listener closes when the last instance using it is
-removed. This prevents a per-topic listener or session. Changing a live endpoint
-requires first removing its remote inputs. The address must be a local address
-reachable by the sender; `tcp/127.0.0.1:17447` is only a same-host example.
+sender serializes the declared ROS1 type and, like the visualizer, connects
+as a client to the selected common UDP unicast Zenoh router with multicast and
+gossip scouting disabled. The endpoint comes from the selected workflow/session
+fact. Remote member inputs and display relays in an instance use that endpoint.
+Subscriptions share a single process session while there is actual output demand;
+when the last consumer leaves, they retract and release the session. No separate
+visualizer listener or per-topic router is started. The example address is only
+a same-host example and does not imply a remote robot address.
 
 The instance PUT `settings.robotProfiles` object accepts profile overlays keyed
 by robot namespace without its leading slash. Each value overlays the generated
@@ -278,15 +274,15 @@ profile and then passes the existing strict profile parser; unknown robots,
 robots without descriptions, non-object entries and invalid fields are rejected.
 This settings overlay takes precedence over a Robot `visualization.profile`.
 Per-input source entries not listed retain their existing local ROS subscription. An entry is
-`{"listen":"tcp/<address>:<port>","key":"<exact-key>"}`. Wildcards and
-non-TCP endpoints are rejected. The following example keeps AR pose local while
+`{"connect":"udp/<address>:<port>","key":"<exact-key>"}`. Wildcards and
+non-UDP endpoints are rejected. The following example keeps AR pose local while
 reading this member's local-position pose and MAVROS flight state remotely:
 
 ```json
 {"robotProfiles":{"uav1":{"state":{"sources":{
-  "pose":{"listen":"tcp/192.0.2.10:17447","key":"run/s1/uav1/local_pose"},
-  "state":{"listen":"tcp/192.0.2.10:17447","key":"run/s1/uav1/state"},
-  "extendedState":{"listen":"tcp/192.0.2.10:17447","key":"run/s1/uav1/extended_state"}
+  "pose":{"connect":"udp/192.0.2.10:17447","key":"run/s1/uav1/local_pose"},
+  "state":{"connect":"udp/192.0.2.10:17447","key":"run/s1/uav1/state"},
+  "extendedState":{"connect":"udp/192.0.2.10:17447","key":"run/s1/uav1/extended_state"}
 }}}}}
 ```
 
@@ -316,10 +312,10 @@ For example, the settings below select a declared `nav_msgs/Path` prediction:
 
 ```json
 {"displayRelaySources":{"/uav1/alg/prediction":
- {"listen":"tcp/192.0.2.10:17447","key":"run/s1/uav1/prediction"}}}
+ {"connect":"udp/192.0.2.10:17447","key":"run/s1/uav1/prediction"}}}
 ```
 
-A direct instance PUT may alternatively add the same `{listen,key}` as `zenoh`
+A direct instance PUT may alternatively add the same `{connect,key}` as `zenoh`
 on its `displayRelays` record; `settings.displayRelaySources` takes precedence.
 The `source`, output `topic` and `messageType` remain required relay fields.
 
@@ -345,12 +341,12 @@ SDK build image, Cargo lock or dependency toolchain is owned by this component.
 
 The optional independent interop probe runs the actual onboarding sender against
 the receiver on two private ROS masters. In a Noetic environment with Python
-Zenoh 1.5.1 and the product sender available:
+Zenoh 1.8.0, a selected private test router and the product sender available:
 
 ```sh
-python3 test/telemetry_interop_probe.py /path/to/xgc2_ros_visualizer_node \
+XGC_TEST_ROUTER_ENDPOINT=udp/127.0.0.1:7448 python3 test/telemetry_interop_probe.py /path/to/xgc2_ros_visualizer_node \
   /path/to/onboard-telemetry /path/to/python-site-packages
 ```
 
-It starts and stops its own masters and processes; it does not use a running
-station or experiment.
+It starts and stops its own masters and processes; the selected test router is
+owned by the caller. It does not use a running station or experiment.

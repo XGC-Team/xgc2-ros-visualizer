@@ -233,11 +233,11 @@ Instance& Server::instance(const std::string& id) const {
 }
 void Server::requireFreeClaims(const std::string& id,const InstanceSpec& spec) const {
   const auto wanted=claims(spec);
-  const auto listen=remoteListen(spec);
+  const auto listen=remoteEndpoint(spec);
   for(const auto& item:instances_) {
-    const auto existing=remoteListen(item.second->spec());
+    const auto existing=remoteEndpoint(item.second->spec());
     if(!listen.empty() && !existing.empty() && listen!=existing)
-      throw ControlFailure(ControlError::Conflict,"all active instances must share one Zenoh listen endpoint");
+      throw ControlFailure(ControlError::Conflict,"all active instances must share one Zenoh connect endpoint");
     if(item.first==id)continue;
     for(const auto& claim:item.second->claims())
       if(wanted.count(claim))throw ControlFailure(ControlError::Conflict,"instance output conflicts with "+item.first+": "+claim);

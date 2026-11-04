@@ -6,8 +6,17 @@
 #include <string>
 #include <vector>
 int main(int argc,char** argv) {
+  if(argc==3 && std::string(argv[1])=="--router") {
+    // An in-process SDK router is only the fixture for this isolated test.
+    std::string config="{mode:'router',listen:{endpoints:['udp/127.0.0.1:"+std::string(argv[2])+"']},scouting:{multicast:{enabled:false},gossip:{enabled:false}}}";
+    z_owned_config_t c; if(zc_config_from_str(&c,config.c_str())<0) return 3;
+    z_owned_session_t router; if(z_open(&router,z_move(c),nullptr)<0) return 4;
+    std::cout<<"READY"<<std::endl;
+    std::string line; std::getline(std::cin,line);
+    z_drop(z_move(router)); return 0;
+  }
   if(argc<3) return 2;
-  std::string config="{mode:'peer',listen:{endpoints:[]},connect:{endpoints:['tcp/127.0.0.1:"+std::string(argv[1])+"']},scouting:{multicast:{enabled:false},gossip:{enabled:false}}}";
+  std::string config="{mode:'client',listen:{endpoints:[]},connect:{endpoints:['udp/127.0.0.1:"+std::string(argv[1])+"']},scouting:{multicast:{enabled:false},gossip:{enabled:false}}}";
   z_owned_config_t c; if(zc_config_from_str(&c,config.c_str())<0) return 3;
   z_owned_session_t session; if(z_open(&session,z_move(c),nullptr)<0) return 4;
   std::vector<z_owned_publisher_t> publishers(static_cast<std::size_t>(argc-2));

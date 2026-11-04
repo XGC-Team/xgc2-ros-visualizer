@@ -12,9 +12,9 @@ struct Session {
   z_owned_session_t value;
   explicit Session(const std::string& endpoint) {
     Json::Value config(Json::objectValue);
-    config["mode"]="peer";
-    config["connect"]["endpoints"]=Json::Value(Json::arrayValue);
-    config["listen"]["endpoints"].append(endpoint);
+    config["mode"]="client";
+    config["listen"]["endpoints"]=Json::Value(Json::arrayValue);
+    config["connect"]["endpoints"].append(endpoint);
     config["scouting"]["multicast"]["enabled"]=false;
     config["scouting"]["gossip"]["enabled"]=false;
     Json::StreamWriterBuilder writer;writer["indentation"]="";
@@ -54,18 +54,13 @@ void onSample(z_loaned_sample_t* sample,void* context) noexcept {
 void onDrop(void* context) { delete static_cast<CallbackState*>(context); }
 }
 void validateZenohSource(const std::string& endpoint,const std::string& key) {
-  static const std::regex address("^tcp/([A-Za-z0-9_.-]+|\\[[0-9A-Fa-f:]+\\]):[0-9]{1,5}$");
-  if(endpoint.size()>255 || !std::regex_match(endpoint,address)) throw std::invalid_argument("Zenoh listen must be an explicit TCP address and port");
+  static const std::regex address("^udp/([A-Za-z0-9_.-]+|\\[[0-9A-Fa-f:]+\\]):[0-9]{1,5}$");
+  if(endpoint.size()>255 || !std::regex_match(endpoint,address)) throw std::invalid_argument("Zenoh connect must be an explicit UDP address and port");
   const auto port=std::stoul(endpoint.substr(endpoint.rfind(':')+1));
-  if(port==0 || port>65535) throw std::invalid_argument("Zenoh listen port is invalid");
+  if(port==0 || port>65535) throw std::invalid_argument("Zenoh connect port is invalid");
   if(key.empty() || key.size()>512 || key.find('*')!=std::string::npos) throw std::invalid_argument("Zenoh key must be exact");
   z_view_keyexpr_t expression;
   if(z_view_keyexpr_from_str(&expression,key.c_str())<0) throw std::invalid_argument("invalid Zenoh key");
-}
-std::shared_ptr<ZenohListener> ZenohListener::open(const std::string& endpoint) {
-  // Reuse the same endpoint validation and session registry as subscriptions.
-  validateZenohSource(endpoint,"xgc/listener-validation");
-  return std::shared_ptr<ZenohListener>(new ZenohListener(sessionFor(endpoint)));
 }
 struct ZenohInput::Impl {
   std::shared_ptr<Session> session;

@@ -122,7 +122,7 @@ Json::Value RobotProfile::json() const {
   }
   if (!remote_sources.empty()) {
     for (const auto& entry : remote_sources) {
-      state["sources"][entry.first]["listen"] = entry.second.endpoint;
+      state["sources"][entry.first]["connect"] = entry.second.endpoint;
       state["sources"][entry.first]["key"] = entry.second.key;
     }
   }
@@ -224,9 +224,9 @@ RobotProfile parseRobotProfile(const std::string& id, const Json::Value& documen
     for (const auto& name:sources.getMemberNames()) {
       const auto& source=sources[name];
       if (!allowed.count(name) || !source.isObject() ||
-          source.getMemberNames().size()!=2 || !source["listen"].isString() || !source["key"].isString())
+          source.getMemberNames().size()!=2 || !source["connect"].isString() || !source["key"].isString())
         throw std::invalid_argument("invalid state.sources entry");
-      RemoteSource remote{source["listen"].asString(),source["key"].asString()};
+      RemoteSource remote{source["connect"].asString(),source["key"].asString()};
       validateZenohSource(remote.endpoint,remote.key);
       result.remote_sources.emplace(name,std::move(remote));
     }
@@ -345,11 +345,11 @@ Change diffInstance(const InstanceSpec& current, const InstanceSpec& next) {
   return change;
 }
 
-std::string remoteListen(const InstanceSpec& spec) {
+std::string remoteEndpoint(const InstanceSpec& spec) {
   std::string listen;
   const auto add=[&listen](const std::string& value) {
     if(value.empty()) return;
-    if(!listen.empty() && listen!=value) throw std::invalid_argument("all remote inputs must share one Zenoh listen endpoint");
+    if(!listen.empty() && listen!=value) throw std::invalid_argument("all remote inputs must share one Zenoh connect endpoint");
     listen=value;
   };
   for(const auto& robot:spec.robots) for(const auto& entry:robot.second.remote_sources) add(entry.second.endpoint);
@@ -358,7 +358,7 @@ std::string remoteListen(const InstanceSpec& spec) {
 }
 
 void checkInstance(const InstanceSpec& spec) {
-  remoteListen(spec);
+  remoteEndpoint(spec);
   if (spec.robots.size() > kMaxRobots) throw std::invalid_argument("an instance has at most 256 robots");
   if (spec.scene.relays.size() > kMaxRelays)
     throw std::invalid_argument("an instance has at most " + std::to_string(kMaxRelays) + " display relays");

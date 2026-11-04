@@ -441,19 +441,19 @@
           "sources": {
             "arPose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-01/measurement",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "extendedState": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-01/extended-state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "pose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-01/pose",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "state": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-01/state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             }
           }
         }
@@ -463,19 +463,19 @@
           "sources": {
             "arPose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-02/measurement",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "extendedState": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-02/extended-state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "pose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-02/pose",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "state": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-02/state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             }
           }
         }
@@ -485,19 +485,19 @@
           "sources": {
             "arPose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-03/measurement",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "extendedState": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-03/extended-state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "pose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-03/pose",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "state": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-03/state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             }
           }
         }
@@ -507,19 +507,19 @@
           "sources": {
             "arPose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-04/measurement",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "extendedState": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-04/extended-state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "pose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-04/pose",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "state": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-04/state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             }
           }
         }
@@ -529,19 +529,19 @@
           "sources": {
             "arPose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-05/measurement",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "extendedState": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-05/extended-state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "pose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-05/pose",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "state": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-05/state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             }
           }
         }
@@ -551,19 +551,19 @@
           "sources": {
             "arPose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-06/measurement",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "extendedState": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-06/extended-state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "pose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-06/pose",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "state": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-06/state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             }
           }
         }
@@ -573,19 +573,19 @@
           "sources": {
             "arPose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-07/measurement",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "extendedState": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-07/extended-state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "pose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-07/pose",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "state": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-07/state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             }
           }
         }
@@ -595,19 +595,19 @@
           "sources": {
             "arPose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-08/measurement",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "extendedState": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-08/extended-state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "pose": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-08/pose",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             },
             "state": {
               "key": "xgc/observations/04f8f436-3bb3-53bb-a036-eecd8eea292b/px4-08/state",
-              "listen": "tcp/0.0.0.0:17447"
+              "connect": "udp/127.0.0.1:17447"
             }
           }
         }

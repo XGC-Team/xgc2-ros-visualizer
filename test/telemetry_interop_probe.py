@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private independent ROS masters: product Python sender -> Zenoh -> visualizer."""
+"""Private independent ROS masters: product Python sender -> shared router -> visualizer."""
 import io
 import json
 import os
@@ -73,12 +73,12 @@ def main(binary, sender_root, sdk_site):
             try: return xmlrpc.client.ServerProxy(robot_uri).getPid('/interop')[0] == 1
             except OSError: return False
         wait(master_ready, 'robot master unavailable', 15)
-        endpoint = 'tcp/127.0.0.1:' + str(zenoh_port)
+        endpoint = os.environ['XGC_TEST_ROUTER_ENDPOINT']
         keys = ['interop/uav1/pose', 'interop/uav1/ar', 'interop/uav1/state', 'interop/uav1/extended', 'interop/uav1/prediction']
         item = robot('uav1')
-        sources = {name: dict(listen=endpoint, key=keys[index]) for index, name in enumerate(('pose', 'arPose', 'state', 'extendedState'))}
+        sources = {name: dict(connect=endpoint, key=keys[index]) for index, name in enumerate(('pose', 'arPose', 'state', 'extendedState'))}
         settings = dict(robotProfiles={'uav1': dict(state=dict(sources=sources, worldOffset=[1, 2, 3]))},
-                        displayRelaySources={'/uav1/alg/prediction': dict(listen=endpoint, key=keys[4])})
+                        displayRelaySources={'/uav1/alg/prediction': dict(connect=endpoint, key=keys[4])})
         relay = dict(source='/uav1/alg/prediction', topic='/xgc/display/uav1/alg/prediction', messageType='nav_msgs/Path', role='prediction')
         paths, ar_paths, predictions, rotors = [], [], [], []
         def read_tf(message):
@@ -91,13 +91,13 @@ def main(binary, sender_root, sdk_site):
                     ('/uav1/mavros/extended_state', 'mavros_msgs/ExtendedState'), ('/uav1/alg/prediction', 'nav_msgs/Path')]
         config = {'connect': [endpoint], 'topics': [dict(topic=t, type=k, key=key, max_hz=20) for (t, k), key in zip(mappings, keys)]}
         env['PYTHONPATH'] = sender_root + os.pathsep + sdk_site + os.pathsep + env.get('PYTHONPATH', '')
-        verify = subprocess.run([sys.executable, '-c', 'import importlib.metadata; assert importlib.metadata.version("eclipse-zenoh")=="1.5.1"'], env=env)
-        require(verify.returncode == 0, 'product sender SDK is not 1.5.1')
+        verify = subprocess.run([sys.executable, '-c', 'import importlib.metadata; assert importlib.metadata.version("eclipse-zenoh")=="1.8.0"'], env=env)
+        require(verify.returncode == 0, 'product sender SDK is not 1.8.0')
         sender = subprocess.Popen([sys.executable, '-m', 'onboard_telemetry', '--config-json', json.dumps(config)], env=env,
                                   stdout=probe.logfile, stderr=probe.logfile, start_new_session=True)
         children.append(sender)
         # The sender must connect before any visualizer output is subscribed.
-        # A client-mode Zenoh 1.5.1 sender exits immediately if there is no listener.
+        # Both clients use the same already-started router; no display subscription exists yet.
         time.sleep(1.5)
         require(sender.poll() is None, 'sender could not connect without a display consumer')
         path_sub = rospy.Subscriber('/uav1/path', Path, paths.append, queue_size=1)
@@ -129,7 +129,7 @@ def main(binary, sender_root, sdk_site):
         probe.rpc('DELETE', '/v1/instances/interop')
         path_sub.unregister(); ar_sub.unregister(); pred_sub.unregister(); tf_sub.unregister()
         require(probe.stop() == 0, 'visualizer did not stop')
-        print('PASS: Python Zenoh 1.5.1 product sender -> Zenoh C 1.8.0 visualizer, isolated ROS masters')
+        print('PASS: Python Zenoh 1.8.0 product sender -> shared router -> C 1.8.0 visualizer, isolated ROS masters')
     except Exception:
         print('PRIVATE PROCESS LOG:\n' + probe.log_tail(), file=sys.stderr)
         raise

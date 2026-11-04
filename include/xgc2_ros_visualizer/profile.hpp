@@ -124,8 +124,8 @@ Change diffInstance(const InstanceSpec& current, const InstanceSpec& next);
 // Whole-instance rules a single profile cannot check: size limits, unique scene
 // models and unique path topics.
 void checkInstance(const InstanceSpec& spec);
-// Returns the single declared Zenoh listen endpoint, or empty for local-only.
-std::string remoteListen(const InstanceSpec& spec);
+// Returns the single declared Zenoh connect endpoint, or empty for local-only.
+std::string remoteEndpoint(const InstanceSpec& spec);
 // The ROS names an instance owns. Two instances of one server may not claim the
 // same name.
 std::set<std::string> claims(const InstanceSpec& spec);

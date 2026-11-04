@@ -172,7 +172,7 @@ TEST(RobotProfile, RejectsWhatDoesNotBelongToTheRobot) {
 }
 TEST(RobotProfile, RemoteArPoseIsAnExplicitSourceWithoutALocalTopic) {
   auto document=minimal("fs150");
-  document["state"]["sources"]["arPose"]["listen"]="tcp/127.0.0.1:17447";
+  document["state"]["sources"]["arPose"]["connect"]="udp/127.0.0.1:17447";
   document["state"]["sources"]["arPose"]["key"]="run/uav1/arPose";
   const auto profile=parseRobotProfile("uav1",document);
   EXPECT_TRUE(profile.ar_pose_topic.empty());
@@ -317,9 +317,9 @@ TEST(InstanceInput, GazeboUsesSelectedRemoteOrLocallyResolvedTracker) {
   }
   auto& profiles=value["settings"]["robotProfiles"];
   profiles["uav1"]["labels"]["color"]="#abcdef";
-  profiles["uav1"]["state"]["sources"]["arPose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
-  profiles["uav1"]["state"]["sources"]["pose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
-  profiles["uav2"]["state"]["sources"]["arPose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav2/measurement\"}");
+  profiles["uav1"]["state"]["sources"]["arPose"]=parseJson("{\"connect\":\"udp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
+  profiles["uav1"]["state"]["sources"]["pose"]=parseJson("{\"connect\":\"udp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
+  profiles["uav2"]["state"]["sources"]["arPose"]=parseJson("{\"connect\":\"udp/192.0.2.10:17447\",\"key\":\"run/uav2/measurement\"}");
   value["context"]["scene"]["simulator"]="gazebo";
   const auto gazebo=projectInstanceInput(value);
   const auto& uav1=gazebo.robots.at("uav1");
@@ -339,7 +339,7 @@ TEST(InstanceInput, GazeboUsesSelectedRemoteOrLocallyResolvedTracker) {
   EXPECT_TRUE(disabled.ar_pose_topic.empty());
   EXPECT_TRUE(disabled.ar_path_topic.empty());
   profiles["uav1"]["state"].removeMember("arPoseTopic");
-  profiles["uav1"]["state"]["sources"]["arPose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
+  profiles["uav1"]["state"]["sources"]["arPose"]=parseJson("{\"connect\":\"udp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
   // XSim keeps the selected remote AR relay.
   value["context"]["scene"]["simulator"]="xsim";
   const auto xsim=projectInstanceInput(value).robots.at("uav1");
@@ -379,7 +379,7 @@ TEST(InstanceInput, GazeboSelectedRemoteCanonicalPoseIsNotReplacedByOldVrpnTopic
   value["context"]["scene"]["simulator"]="gazebo";
   value["context"]["robots"][0]["profile"]["parameters"]["mocap_rigid_body"]="body_1";
   value["settings"]["robotProfiles"]["uav1"]["state"]["sources"]["arPose"] =
-      parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
+      parseJson("{\"connect\":\"udp/192.0.2.10:17447\",\"key\":\"run/uav1/measurement\"}");
   const auto profile=projectInstanceInput(value).robots.at("uav1");
   EXPECT_TRUE(profile.ar_pose_topic.empty());
   ASSERT_EQ(profile.remote_sources.count("arPose"),1U);
@@ -394,7 +394,7 @@ TEST(InstanceInput, PhysicalZenohCanonicalPoseDoesNotApplyTheWorldOffsetTwice) {
   value["context"]["localizationOffset"]["y"]=0;
   value["context"]["localizationOffset"]["z"]=0;
   auto& params=value["context"]["robots"][0]["profile"]["parameters"];
-  params["zenoh_endpoint"]="tcp/192.0.2.10:17447";
+  params["zenoh_endpoint"]="udp/192.0.2.10:17447";
   params["localization_source"]="selected-physical-source";
   const auto canonical=projectInstanceInput(value).robots.at("uav1");
   EXPECT_EQ(canonical.ar_pose_topic,"/uav1/pose");
@@ -642,7 +642,7 @@ int main(int argc,char** argv) {testing::InitGoogleTest(&argc,argv);return RUN_A
 TEST(RobotProfile, ExplicitZenohSourcesRoundTripAndRebuildOnlyTheirRobot) {
   auto document=minimal("fs150");
   document["state"]["arPoseTopic"]="/vrpn_client_node/uav1/pose";
-  document["state"]["sources"]["pose"]["listen"]="tcp/127.0.0.1:17447";
+  document["state"]["sources"]["pose"]["connect"]="udp/127.0.0.1:17447";
   document["state"]["sources"]["pose"]["key"]="run/uav1/local_pose";
   const auto original=parseRobotProfile("uav1",document);
   EXPECT_EQ(original.remote_sources.at("pose").key,"run/uav1/local_pose");
@@ -654,16 +654,16 @@ TEST(RobotProfile, ExplicitZenohSourcesRoundTripAndRebuildOnlyTheirRobot) {
   document["state"]["sources"]["pose"]["key"]="run/**";
   EXPECT_THROW(parseRobotProfile("uav1",document),std::invalid_argument);
   document["state"]["sources"]["pose"]["key"]="run/uav1/pose";
-  document["state"]["sources"]["pose"]["listen"]="udp/127.0.0.1:17447";
+  document["state"]["sources"]["pose"]["connect"]="tcp/127.0.0.1:17447";
   EXPECT_THROW(parseRobotProfile("uav1",document),std::invalid_argument);
-  document["state"]["sources"]["pose"]["listen"]="tcp/127.0.0.1:17447";
+  document["state"]["sources"]["pose"]["connect"]="udp/127.0.0.1:17447";
   document["state"]["sources"]["twist"]=document["state"]["sources"]["pose"];
   EXPECT_THROW(parseRobotProfile("uav1",document),std::invalid_argument);
 }
 
 TEST(InstanceInput, RemoteDisplaySourceIsExplicitAndChangesRelayIdentity) {
   auto value=fleet();
-  auto relay=parseJson("{\"source\":\"/uav1/alg/prediction\",\"topic\":\"/xgc/display/uav1/alg/prediction\",\"messageType\":\"nav_msgs/Path\",\"role\":\"prediction\",\"zenoh\":{\"listen\":\"tcp/127.0.0.1:17447\",\"key\":\"run/uav1/prediction\"}}");
+  auto relay=parseJson("{\"source\":\"/uav1/alg/prediction\",\"topic\":\"/xgc/display/uav1/alg/prediction\",\"messageType\":\"nav_msgs/Path\",\"role\":\"prediction\",\"zenoh\":{\"connect\":\"udp/127.0.0.1:17447\",\"key\":\"run/uav1/prediction\"}}");
   value["displayRelays"].append(relay);
   auto before=projectInstanceInput(value);
   EXPECT_EQ(before.scene.relays.at(0).zenoh_key,"run/uav1/prediction");
@@ -676,18 +676,18 @@ TEST(InstanceInput, RemoteDisplaySourceIsExplicitAndChangesRelayIdentity) {
 
 TEST(InstanceInput, EveryRemoteInputSharesOneListener) {
   auto value=fleet();
-  auto remote=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
+  auto remote=parseJson("{\"connect\":\"udp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
   value["robots"][0]["visualization"]["profile"]["state"]["sources"]["pose"]=remote;
   value["robots"][1]["visualization"]["profile"]["state"]["sources"]["pose"]=remote;
   auto spec=projectInstanceInput(value);
-  EXPECT_EQ(remoteListen(spec),"tcp/192.0.2.10:17447");
-  value["robots"][1]["visualization"]["profile"]["state"]["sources"]["pose"]["listen"]="tcp/192.0.2.10:17448";
+  EXPECT_EQ(remoteEndpoint(spec),"udp/192.0.2.10:17447");
+  value["robots"][1]["visualization"]["profile"]["state"]["sources"]["pose"]["connect"]="udp/192.0.2.10:17448";
   EXPECT_THROW(projectInstanceInput(value),std::invalid_argument);
 }
 
 TEST(InstanceInput, SettingsRobotProfilesOverrideExactlyTheNamedFrozenRobot) {
   auto value=fleet();
-  value["settings"]["robotProfiles"]["uav1"]["state"]["sources"]["pose"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
+  value["settings"]["robotProfiles"]["uav1"]["state"]["sources"]["pose"]=parseJson("{\"connect\":\"udp/192.0.2.10:17447\",\"key\":\"run/uav1/pose\"}");
   const auto spec=projectInstanceInput(value);
   EXPECT_EQ(spec.robots.at("uav1").remote_sources.at("pose").key,"run/uav1/pose");
   EXPECT_TRUE(spec.robots.at("uav2").remote_sources.empty());
@@ -708,7 +708,7 @@ TEST(InstanceInput, SettingsRobotProfilesOverrideExactlyTheNamedFrozenRobot) {
 TEST(InstanceInput, SettingsSelectsDeclaredDisplayRelaySources) {
   auto value=fleet();
   value["displayRelays"].append(parseJson("{\"source\":\"/uav1/alg/prediction\",\"topic\":\"/xgc/display/uav1/alg/prediction\",\"messageType\":\"nav_msgs/Path\"}"));
-  value["settings"]["displayRelaySources"]["/uav1/alg/prediction"]=parseJson("{\"listen\":\"tcp/192.0.2.10:17447\",\"key\":\"run/uav1/path\"}");
+  value["settings"]["displayRelaySources"]["/uav1/alg/prediction"]=parseJson("{\"connect\":\"udp/192.0.2.10:17447\",\"key\":\"run/uav1/path\"}");
   const auto spec=projectInstanceInput(value);
   EXPECT_EQ(spec.scene.relays.at(0).zenoh_key,"run/uav1/path");
   auto bad=value;bad["settings"]["displayRelaySources"]["/missing"]=bad["settings"]["displayRelaySources"]["/uav1/alg/prediction"];

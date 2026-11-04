@@ -337,9 +337,9 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
     const bool override=relay_overrides.isMember(source);
     if (override || relay.isMember("zenoh")) {
       const auto& remote=override ? relay_overrides[source] : relay["zenoh"];
-      if (!remote.isObject() || remote.getMemberNames().size()!=2 || !remote["listen"].isString() || !remote["key"].isString())
-        throw std::invalid_argument("relay zenoh requires listen and key");
-      config.zenoh_endpoint=remote["listen"].asString(); config.zenoh_key=remote["key"].asString();
+      if (!remote.isObject() || remote.getMemberNames().size()!=2 || !remote["connect"].isString() || !remote["key"].isString())
+        throw std::invalid_argument("relay zenoh requires connect and key");
+      config.zenoh_endpoint=remote["connect"].asString(); config.zenoh_key=remote["key"].asString();
       validateZenohSource(config.zenoh_endpoint,config.zenoh_key);
       if(override) applied_relays.insert(source);
     }
