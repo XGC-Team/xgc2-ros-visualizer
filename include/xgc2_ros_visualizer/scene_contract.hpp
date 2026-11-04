@@ -248,8 +248,8 @@ struct CanonicalWorldPose {
     std::string frame_id;
 };
 
-// Accept the kind-specific available, finite, source-stamped pose, or nothing.
-// Rendering does not compare the source clock with the viewer clock.
+// Accept the kind-specific available, finite pose, including an unset source
+// stamp. Rendering does not use the source clock as a visibility condition.
 // FS150 accepts only MAVROS `map` (or world for a direct contract test/source);
 // ground vehicles continue to require world.
 CanonicalWorldPose selectSlotVisualizationWorldPose(RobotModelKind kind, const CanonicalPoseSample& pose);

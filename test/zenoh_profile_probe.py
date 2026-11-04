@@ -48,13 +48,15 @@ def main(binary, peer_binary):
         relay = dict(source='/uav1/alg/prediction', topic='/xgc/display/uav1/alg/prediction', messageType='nav_msgs/Path',
                      role='prediction')
         relay_sources = {'/uav1/alg/prediction': dict(connect=endpoint, key=keys[4])}
-        paths, paths2, ar_paths, predictions, rotor, wheel = [], [], [], [], [], []
+        paths, paths2, ar_paths, predictions, rotor, wheel, bodies = [], [], [], [], [], [], []
         def collect_tf(message):
             for transform in message.transforms:
                 if 'uav1/' in transform.child_frame_id and 'rotor' in transform.child_frame_id:
                     rotor.append(transform.transform.rotation.z)
                 if 'ugv1/' in transform.child_frame_id and 'front_left_wheel_link' in transform.child_frame_id:
                     wheel.append(transform.transform.rotation.z)
+                if transform.child_frame_id == 'xgc/robots/uav1/base_link':
+                    bodies.append((transform.transform.translation.x, transform.header.stamp.to_nsec()))
         probe.rpc('PUT', '/v1/instances/zenoh', instance([item, item2, ground], [relay], settings=dict(robotProfiles=overrides, displayRelaySources=relay_sources)))
         peer = subprocess.Popen([peer_binary, str(port)] + keys, stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=probe.logfile, text=True, bufsize=1)
@@ -120,6 +122,17 @@ def main(binary, peer_binary):
         require(predictions and predictions[-1].header.frame_id == 'world', 'remote Path not displayed')
         require(len(set(round(v, 4) for v in rotor)) >= 2, 'remote armed state did not animate rotors')
         require(len(set(round(v, 4) for v in wheel)) >= 2, 'remote ground twist did not animate wheels')
+        # A received pose remains visible with an unset or repeated source
+        # stamp. Distinct payloads at the same stamp must update the body TF.
+        pose.header.stamp = rospy.Time()
+        for position in (12, 13):
+            pose.pose.position.x = position
+            for _ in range(30):
+                put(0, wire(pose))
+                time.sleep(.05)
+                if any(abs(x-position)<1e-6 and stamp == 0 for x, stamp in bodies): break
+            require(any(abs(x-position)<1e-6 and stamp == 0 for x, stamp in bodies),
+                    'zero/repeated timestamp hid a received body pose')
         peer2.stdin.close(); require(peer2.wait(timeout=5) == 0, 'second sender failed to stop')
         peer2 = subprocess.Popen([peer_binary, str(port), 'run/uav2/pose'], stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, stderr=probe.logfile, text=True, bufsize=1)

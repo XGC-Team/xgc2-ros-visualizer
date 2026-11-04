@@ -246,8 +246,9 @@ TEST(SceneContract, CanonicalPosePublishesOnlyBodyAndUprightLabelTransforms) {
     }
     EXPECT_THROW(canonicalRobotPoseTransforms(RobotModelKind::kNone, "uav1", pose, stamp, "world"),
                  std::invalid_argument);
-    EXPECT_THROW(canonicalRobotPoseTransforms(RobotModelKind::kFs150, "uav1", pose, ros::Time(), "world"),
-                 std::invalid_argument);
+    EXPECT_NO_THROW(canonicalRobotPoseTransforms(RobotModelKind::kFs150, "uav1", pose, ros::Time(), "world"));
+    EXPECT_NO_THROW(canonicalArIdentityLabelTransform(RobotModelKind::kFs150, "uav1", pose, ros::Time(), "world"));
+    EXPECT_NO_THROW(identityLabelMarker("uav1", "xgc/robots/uav1/label_ar", ros::Time()));
 }
 
 TEST(SceneContract, GroundVehicleBodyTransformSitsWheelsOnTheXYPlane) {
@@ -621,7 +622,9 @@ TEST(CanonicalWorldPose, AcceptsOnlyTheKindSpecificSlotViewerSample) {
 
     CanonicalPoseSample zero_stamp = pose;
     zero_stamp.stamp = ros::Time();
-    EXPECT_FALSE(selectSlotVisualizationWorldPose(RobotModelKind::kFs150, zero_stamp).found);
+    const auto zero = selectSlotVisualizationWorldPose(RobotModelKind::kFs150, zero_stamp);
+    ASSERT_TRUE(zero.found);
+    EXPECT_EQ(zero.stamp, ros::Time());
 
     CanonicalPoseSample stale = pose;
     stale.stamp = ros::Time(3, 0);  // More than the observed six-second cross-host skew.

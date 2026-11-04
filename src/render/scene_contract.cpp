@@ -124,7 +124,7 @@ std::string normalizedFrameLabel(const std::string& frame_id) {
 bool isUsableCanonicalSample(const CanonicalPoseSample& source) {
     const auto& p = source.pose.position;
     const auto& q = source.pose.orientation;
-    return source.available && !source.stamp.isZero() && std::isfinite(p.x) && std::isfinite(p.y) &&
+    return source.available && std::isfinite(p.x) && std::isfinite(p.y) &&
            std::isfinite(p.z) && std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) &&
            std::isfinite(q.w);
 }
@@ -167,7 +167,7 @@ SceneLabelStyle sceneLabelStyleFromMarkerColor(const std::string& marker_color,
 foxglove_msgs::SceneEntity uavHeightProjectionEntity(
     const std::string& scene_model, const geometry_msgs::Point& position,
     const ros::Time& stamp, const std::string& frame_id, const foxglove_msgs::Color& color) {
-    if (!canonicalROSIdentifier(scene_model) || !isWorldFixedFrame(frame_id) || stamp.isZero() ||
+    if (!canonicalROSIdentifier(scene_model) || !isWorldFixedFrame(frame_id) ||
         !std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
         throw std::invalid_argument("UAV height projection requires a finite world position and identity");
     }
@@ -611,8 +611,7 @@ canonicalRobotPoseTransforms(RobotModelKind kind, const std::string& scene_model
                              const geometry_msgs::Pose& pose, const ros::Time& stamp,
                              const std::string& frame_id, const SceneLabelOffsets& offsets) {
     validateSceneLabelOffsets(offsets);
-    if (kind == RobotModelKind::kNone || !canonicalROSIdentifier(scene_model) || !isWorldFixedFrame(frame_id) ||
-        stamp.isZero()) {
+    if (kind == RobotModelKind::kNone || !canonicalROSIdentifier(scene_model) || !isWorldFixedFrame(frame_id)) {
         throw std::invalid_argument("canonical Robot pose transform identity must be complete");
     }
 
@@ -670,8 +669,7 @@ geometry_msgs::TransformStamped canonicalArIdentityLabelTransform(
     RobotModelKind kind, const std::string& scene_model, const geometry_msgs::Pose& pose, const ros::Time& stamp,
     const std::string& frame_id, const SceneLabelOffsets& offsets) {
     validateSceneLabelOffsets(offsets);
-    if (kind == RobotModelKind::kNone || !canonicalROSIdentifier(scene_model) || !isWorldFixedFrame(frame_id) ||
-        stamp.isZero()) {
+    if (kind == RobotModelKind::kNone || !canonicalROSIdentifier(scene_model) || !isWorldFixedFrame(frame_id)) {
         throw std::invalid_argument("AR identity label transform identity must be complete");
     }
     geometry_msgs::TransformStamped label;
@@ -688,8 +686,8 @@ geometry_msgs::TransformStamped canonicalArIdentityLabelTransform(
 
 visualization_msgs::Marker identityLabelMarker(const std::string& scene_model, const std::string& label_frame,
                                                  const ros::Time& stamp) {
-    if (!canonicalROSIdentifier(scene_model) || label_frame.empty() || stamp.isZero()) {
-        throw std::invalid_argument("identity label marker requires a scene model, frame, and stamp");
+    if (!canonicalROSIdentifier(scene_model) || label_frame.empty()) {
+        throw std::invalid_argument("identity label marker requires a scene model and frame");
     }
     visualization_msgs::Marker marker;
     marker.header.stamp = stamp;

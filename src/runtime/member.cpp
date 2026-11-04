@@ -42,6 +42,7 @@ bool fresh(const ros::Time& stamp,const ros::Time& now,double timeout) { return 
 struct PoseValue {
   geometry_msgs::Pose pose;
   ros::Time stamp;
+  std::uint64_t revision{0};
   // Fixed state stores the accepted frame category, rather than copying strings under its lock.
   std::uint8_t frame{0};
   bool available{false};
@@ -177,7 +178,7 @@ class Member::Impl {
       const bool accepted=value.frame==1||(kind==RobotModelKind::kFs150&&value.frame==2);
       const bool record=accepted&&fresh(value.stamp,ros::Time::now(),timeout);
       const auto path_pose=slotHistoryPathPose(kind,value.pose);
-      std::lock_guard<std::mutex> lock(data->mutex);data->state.pose=value;
+      std::lock_guard<std::mutex> lock(data->mutex);value.revision=data->state.pose.revision+1;data->state.pose=value;
       if(record)data->path.append(value.stamp,path_pose);
     });
     if (!profile.ar_pose_topic.empty() || profile.remote_sources.count("arPose") != 0) {
@@ -186,7 +187,7 @@ class Member::Impl {
         if (!finite(msg->pose)) return;
         PoseValue value;value.available=true;value.frame=1;value.pose=applyExperimentWorldOffsetOnce(msg->pose,offset);value.stamp=msg->header.stamp;
         if (!finite(value.pose)) return;
-        std::lock_guard<std::mutex> lock(data->mutex);data->state.ar=value;
+        std::lock_guard<std::mutex> lock(data->mutex);value.revision=data->state.ar.revision+1;data->state.ar=value;
         data->ar_path.append(value.stamp,value.pose);
       });
     }
@@ -311,20 +312,20 @@ class Member::Impl {
     }
     for(const auto& value:batch.scratch_tf) if(value.header.frame_id!=profile.frame_id) batch.joints.transforms.push_back(value);
   }
-  void projectHeight(const TickContext& context,TickBatch& batch,const std::array<bool,kChannelCount>& due,const CanonicalPoseSample& canonical,const CanonicalPoseSample& ar,bool image) {
+  void projectHeight(const TickContext& context,TickBatch& batch,const std::array<bool,kChannelCount>& due,const CanonicalPoseSample& canonical,const CanonicalPoseSample& ar,std::uint64_t revision,bool image) {
     if(profile.kind!=RateKind::Fs150||profile.height_projection_color.empty()) return;
     const auto channel=image?Channel::HeightProjectionAr:Channel::HeightProjection;
     if(!due[static_cast<std::size_t>(channel)]) return;
     bool& present=image?height_ar_present:height_present;
-    ros::Time& stamp=image?height_ar_stamp:height_stamp;
+    std::uint64_t& last_revision=image?height_ar_revision:height_revision;
     auto& entity=image?height_ar_entity:height_entity;
     auto pose=selectUavHeightProjectionWorldPose(image?HeightProjectionView::kVrpn:HeightProjectionView::kLocalPosition,canonical,ar);
     if(pose.found) {
-      if(!present||stamp!=pose.stamp) {
+      if(!present||last_revision!=revision) {
         entity=uavHeightProjectionEntity(profile.scene_model,pose.pose.position,pose.stamp,profile.frame_id,sceneColorFromHex(profile.height_projection_color));
         if(image) batch.height_ar_changed=true;else batch.height_changed=true;
       }
-      present=true;stamp=pose.stamp;
+      present=true;last_revision=revision;
     } else if(present) {
       (image?batch.height_ar:batch.height).deletions.push_back(uavHeightProjectionDeletion(profile.scene_model,context.now));present=false;
       if(image) batch.height_ar_changed=true;else batch.height_changed=true;
@@ -347,12 +348,13 @@ class Member::Impl {
     if(path_pub&&is(Channel::Path))publishHistory(context,false);
     if(ar_path_pub&&is(Channel::ArPath))publishHistory(context,true);
     if(transforms&&is(Channel::PoseTf)) {
-      if(pose.found&&pose.stamp!=pose_tf_stamp) {
+      if(pose.found&&sample.pose.revision!=pose_tf_revision) {
         const auto values=canonicalRobotPoseTransforms(kind,profile.scene_model,pose.pose,pose.stamp,profile.frame_id,label_offsets);
-        batch.transforms.transforms.insert(batch.transforms.transforms.end(),values.begin(),values.end());pose_tf_stamp=pose.stamp;counted(context,Channel::PoseTf);
+        batch.transforms.transforms.insert(batch.transforms.transforms.end(),values.begin(),values.end());pose_tf_revision=sample.pose.revision;counted(context,Channel::PoseTf);
       }
-      if(ar_pose.found&&ar_pose.stamp!=ar_tf_stamp) {
-        batch.transforms.transforms.push_back(canonicalArIdentityLabelTransform(kind,profile.scene_model,ar_pose.pose,ar_pose.stamp,profile.frame_id,label_offsets));ar_tf_stamp=ar_pose.stamp;
+      const auto ar_revision=kind==RobotModelKind::kFs150?sample.ar.revision:sample.pose.revision;
+      if(ar_pose.found&&ar_revision!=ar_tf_revision) {
+        batch.transforms.transforms.push_back(canonicalArIdentityLabelTransform(kind,profile.scene_model,ar_pose.pose,ar_pose.stamp,profile.frame_id,label_offsets));ar_tf_revision=ar_revision;
       }
     }
     if(scene&&ar_pose.found&&!ar_label_sent&&is(Channel::ArIdentity)) {
@@ -361,7 +363,7 @@ class Member::Impl {
       foxglove_msgs::SceneUpdate update;appendSceneEntityPart(kind,profile.id,SceneEntityPart::kArLabel,batch.scratch,0,ar_pose.stamp,profile.frame_id,profile.labelStyle(),&update);
       if(!update.entities.empty()) {ar_label=std::move(update.entities.front());ar_label_sent=true;batch.scene_ar_changed=true;counted(context,Channel::ArIdentity);}
     }
-    if(scene){projectHeight(context,batch,due,canonical,ar,false);projectHeight(context,batch,due,canonical,ar,true);}
+    if(scene){projectHeight(context,batch,due,canonical,ar,sample.pose.revision,false);projectHeight(context,batch,due,canonical,ar,sample.ar.revision,true);}
     if(!pose.found) return;
     const bool markers=markers_out&&is(Channel::Markers),joint=transforms&&is(Channel::JointTf);
     const bool label=scene&&is(Channel::Scene)&&(!label_sent||publication.scene_paths);
@@ -411,7 +413,7 @@ class Member::Impl {
   bool label_sent{false},ar_label_sent{false},height_present{false},height_ar_present{false};
   bool history_line_sent{false},history_suppressed{false};
   foxglove_msgs::SceneEntity label_entity,ar_label,height_entity,height_ar_entity;
-  ros::Time pose_tf_stamp,ar_tf_stamp,height_stamp,height_ar_stamp;
+  std::uint64_t pose_tf_revision{0},ar_tf_revision{0},height_revision{0},height_ar_revision{0};
   std::set<std::pair<std::string,int>> marker_ids;
   std::array<RateGate,kChannelCount> gates;
   std::array<std::atomic<std::uint64_t>,kChannelCount> counts;
@@ -484,6 +486,7 @@ Retraction Member::retraction(const ros::Time& now) const {
 void Member::resetOutputs() {
   auto& p=*impl_;
   p.label_sent=p.ar_label_sent=p.height_present=p.height_ar_present=false;
+  p.pose_tf_revision=p.ar_tf_revision=p.height_revision=p.height_ar_revision=0;
   p.marker_ids.clear();
 }
 
