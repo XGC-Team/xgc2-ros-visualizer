@@ -41,8 +41,10 @@ release:
   ci_workflow: ci.yml
   requires:
   - xgc2-xrpc
+  - xgc2-zenoh
   dependency_policy:
     xgc2-xrpc: rebuild
+    xgc2-zenoh: verify
     xgc2-fs150-description: verify
     xgc2-scout-description: verify
     xgc2-mecanum-description: verify
