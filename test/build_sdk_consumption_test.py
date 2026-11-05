@@ -31,9 +31,10 @@ for index, arg in enumerate(sys.argv):
     if arg == '-e' and '=' in sys.argv[index+1]:
         key, value = sys.argv[index+1].split('=', 1)
         env[key] = value
-if 'sdk_packages=()' in body:
-    selection = body.split('sdk_packages=()',1)[1].split('chown ',1)[0]
-    result = subprocess.run(['bash','-ec','sdk_packages=()'+selection], env=env)
+start = body.find('if [[ "$XGC2_EXTERNAL_ZENOHC" != 1 ]]; then')
+if start >= 0:
+    selection = body[start:body.index('chown ', start)]
+    result = subprocess.run(['bash','-ec',selection], env=env)
     if result.returncode: sys.exit(result.returncode)
     start = body.index('if [[ "$XGC2_EXTERNAL_ZENOHC" == 1 ]]; then')
     end = body.index('ros_prefix_path=', start)
