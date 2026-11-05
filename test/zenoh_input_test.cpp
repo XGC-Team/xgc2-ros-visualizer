@@ -6,19 +6,49 @@
 #include <thread>
 using namespace xgc2_ros_visualizer;
 
+namespace {
+struct LinkCount {
+  int total{0};
+  int streamed{0};
+  int datagram{0};
+};
+void countLink(z_loaned_link_t* link,void* context) {
+  auto& count=*static_cast<LinkCount*>(context);
+  ++count.total;
+  if(z_link_is_streamed(link)) ++count.streamed;
+  else ++count.datagram;
+}
+LinkCount waitForMixedLinks(z_owned_session_t& session) {
+  LinkCount count;
+  for(int i=0;i<200;++i) {
+    count=LinkCount{};
+    z_owned_closure_link_t closure;
+    z_closure_link(&closure,countLink,nullptr,&count);
+    EXPECT_EQ(0,z_info_links(z_loan(session),z_move(closure),nullptr));
+    if(count.total>=2) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  return count;
+}
+}
+
 // One SDK router is a test fixture. Product acceptance additionally exercises
 // the official zenohd in a separate isolated process.
 TEST(ZenohInput, ExactKeyThroughSharedUdpRouterAndDemandRelease) {
-  const char* router_config="{mode:'router',listen:{endpoints:['udp/127.0.0.1:17569']},scouting:{multicast:{enabled:false},gossip:{enabled:false}}}";
+  const char* router_config="{mode:'router',listen:{endpoints:['udp/127.0.0.1:17569?rel=1;mixed_rel=1;multistream=1']},scouting:{multicast:{enabled:false},gossip:{enabled:false}}}";
   z_owned_config_t rc; ASSERT_EQ(0,zc_config_from_str(&rc,router_config));
   z_owned_session_t router; ASSERT_EQ(0,z_open(&router,z_move(rc),nullptr));
-  const char* config="{mode:'client',connect:{endpoints:['udp/127.0.0.1:17569']},scouting:{multicast:{enabled:false},gossip:{enabled:false}}}";
+  const char* config="{mode:'client',connect:{endpoints:['udp/127.0.0.1:17569?rel=1;mixed_rel=1;multistream=1']},scouting:{multicast:{enabled:false},gossip:{enabled:false}}}";
   z_owned_config_t c; ASSERT_EQ(0,zc_config_from_str(&c,config));
   z_owned_session_t session; ASSERT_EQ(0,z_open(&session,z_move(c),nullptr));
   z_view_keyexpr_t key; ASSERT_EQ(0,z_view_keyexpr_from_str(&key,"test/private/pose"));
   z_owned_publisher_t publisher; ASSERT_EQ(0,z_declare_publisher(z_loan(session),&publisher,z_loan(key),nullptr));
+  const auto links=waitForMixedLinks(session);
+  EXPECT_GE(links.total,2);
+  EXPECT_GE(links.streamed,1);
+  EXPECT_GE(links.datagram,1);
   std::atomic<int> delivered{0};
-  auto input=ZenohInput::open("udp/127.0.0.1:17569","test/private/pose",4,[&](const std::uint8_t* data,std::size_t size) {
+  auto input=ZenohInput::open("udp/127.0.0.1:17569?rel=1;mixed_rel=1;multistream=1","test/private/pose",4,[&](const std::uint8_t* data,std::size_t size) {
     if(size==3 && data[0]==1 && data[1]==2 && data[2]==3)++delivered;
   });
   auto put=[&](std::size_t size) {
@@ -41,6 +71,7 @@ TEST(ZenohInput, ExactKeyThroughSharedUdpRouterAndDemandRelease) {
 }
 TEST(ZenohInput, OnlyExplicitUdpEndpointsAndExactKeys) {
   EXPECT_NO_THROW(validateZenohSource("udp/192.0.2.1:7447","xgc/run/robot1/pose"));
+  EXPECT_NO_THROW(validateZenohSource("udp/192.0.2.1:7447?rel=1;mixed_rel=1;multistream=1","xgc/run/robot1/pose"));
   EXPECT_THROW(validateZenohSource("tcp/192.0.2.1:7447","xgc/run/robot1/pose"),std::invalid_argument);
   EXPECT_THROW(validateZenohSource("udp/192.0.2.1:0","xgc/run/robot1/pose"),std::invalid_argument);
   EXPECT_THROW(validateZenohSource("udp/192.0.2.1:7447","xgc/**"),std::invalid_argument);

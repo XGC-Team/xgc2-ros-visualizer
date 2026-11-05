@@ -326,9 +326,9 @@ republished as raw ROS topics. Member messages are capped at 64 KiB and display
 messages at 1 MiB; malformed, truncated, trailing or oversized payloads are
 discarded before consumer callbacks and before any array-sized allocation.
 
-The controlled Focal builder installs the published `xgc2-zenoh=1.8.0-2~focal`
+The controlled Focal builder installs the published `xgc2-zenoh=1.10.2-1~focal`
 package from production APT alongside its other build dependencies. CMake uses
-its `/opt/xgc2/zenoh` SDK and requires `zenohc` exactly 1.8.0. The component
+its `/opt/xgc2/zenoh` SDK and requires `zenohc` exactly 1.10.2. The component
 never downloads or compiles Zenoh source and has no source fallback.
 
 The explicit `--zenoh-prefix` / `XGC2_ZENOHC_PREFIX` input remains available
@@ -341,7 +341,7 @@ SDK build image, Cargo lock or dependency toolchain is owned by this component.
 
 The optional independent interop probe runs the actual onboarding sender against
 the receiver on two private ROS masters. In a Noetic environment with Python
-Zenoh 1.8.0, a selected private test router and the product sender available:
+Zenoh 1.10.2, a selected private test router and the product sender available:
 
 ```sh
 XGC_TEST_ROUTER_ENDPOINT=udp/127.0.0.1:7448 python3 test/telemetry_interop_probe.py /path/to/xgc2_ros_visualizer_node \
