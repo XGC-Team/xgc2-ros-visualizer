@@ -6,7 +6,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSONCPP REQUIRED IMPORTED_TARGET jsoncpp)
 find_package(Threads REQUIRED)
 find_package(XgcXrpc 0.2 CONFIG REQUIRED COMPONENTS http)
-find_package(zenohc 1.8.0 EXACT CONFIG REQUIRED)
+find_package(zenohc 1.10.2 EXACT CONFIG REQUIRED)
 catkin_package(INCLUDE_DIRS include LIBRARIES xgc2_ros_visualizer_contract xgc2_ros_visualizer_runtime
   CATKIN_DEPENDS roscpp roslib urdf sensor_msgs nav_msgs geometry_msgs foxglove_msgs mavros_msgs
   std_msgs tf2_ros visualization_msgs DEPENDS JSONCPP)

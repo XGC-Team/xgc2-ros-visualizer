@@ -54,7 +54,7 @@ echo "deb [trusted=yes arch=$(dpkg --print-architecture)] https://xgc2.apt.xiaok
 apt-get update
 sdk_packages=()
 if [[ "$XGC2_EXTERNAL_ZENOHC" != 1 ]]; then
-  sdk_packages=(xgc2-zenoh=1.8.0-2~focal)
+  sdk_packages=(xgc2-zenoh=1.10.2-1~focal)
 fi
 apt-get install -y --no-install-recommends "${sdk_packages[@]}" ros-noetic-xgc2-fs150-description ros-noetic-xgc2-scout-description ros-noetic-xgc2-mecanum-description libxgc2-xrpc-dev
 chown "${HOST_UID}:${HOST_GID}" /work /out

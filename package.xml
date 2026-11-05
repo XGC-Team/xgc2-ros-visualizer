@@ -12,7 +12,7 @@
   <exec_depend>fs150_description</exec_depend><exec_depend>scout_description</exec_depend>
   <exec_depend>mecanum_description</exec_depend>
   <build_depend>libxgc2-xrpc-dev</build_depend><exec_depend version_gte="0.2.0">libxgc2-xrpc2</exec_depend>
-  <build_depend version_eq="1.8.0-2~focal">xgc2-zenoh</build_depend>
+  <build_depend version_eq="1.10.2-1~focal">xgc2-zenoh</build_depend>
   <build_depend>libjsoncpp-dev</build_depend><exec_depend>libjsoncpp1</exec_depend>
   <build_export_depend>libjsoncpp-dev</build_export_depend>
   <test_depend>rostest</test_depend><test_depend>rosunit</test_depend>

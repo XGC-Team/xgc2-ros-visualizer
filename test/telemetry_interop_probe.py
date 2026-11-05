@@ -91,8 +91,8 @@ def main(binary, sender_root, sdk_site):
                     ('/uav1/mavros/extended_state', 'mavros_msgs/ExtendedState'), ('/uav1/alg/prediction', 'nav_msgs/Path')]
         config = {'connect': [endpoint], 'topics': [dict(topic=t, type=k, key=key, max_hz=20) for (t, k), key in zip(mappings, keys)]}
         env['PYTHONPATH'] = sender_root + os.pathsep + sdk_site + os.pathsep + env.get('PYTHONPATH', '')
-        verify = subprocess.run([sys.executable, '-c', 'import importlib.metadata; assert importlib.metadata.version("eclipse-zenoh")=="1.8.0"'], env=env)
-        require(verify.returncode == 0, 'product sender SDK is not 1.8.0')
+        verify = subprocess.run([sys.executable, '-c', 'import importlib.metadata; assert importlib.metadata.version("eclipse-zenoh")=="1.10.2"'], env=env)
+        require(verify.returncode == 0, 'product sender SDK is not 1.10.2')
         sender = subprocess.Popen([sys.executable, '-m', 'onboard_telemetry', '--config-json', json.dumps(config)], env=env,
                                   stdout=probe.logfile, stderr=probe.logfile, start_new_session=True)
         children.append(sender)
@@ -129,7 +129,7 @@ def main(binary, sender_root, sdk_site):
         probe.rpc('DELETE', '/v1/instances/interop')
         path_sub.unregister(); ar_sub.unregister(); pred_sub.unregister(); tf_sub.unregister()
         require(probe.stop() == 0, 'visualizer did not stop')
-        print('PASS: Python Zenoh 1.8.0 product sender -> shared router -> C 1.8.0 visualizer, isolated ROS masters')
+        print('PASS: Python Zenoh 1.10.2 product sender -> shared router -> C 1.10.2 visualizer, isolated ROS masters')
     except Exception:
         print('PRIVATE PROCESS LOG:\n' + probe.log_tail(), file=sys.stderr)
         raise
