@@ -54,30 +54,17 @@ void onSample(z_loaned_sample_t* sample,void* context) noexcept {
 void onDrop(void* context) { delete static_cast<CallbackState*>(context); }
 }
 void validateZenohSource(const std::string& endpoint,const std::string& key) {
-  // Keep the product's explicit UDP/host/port requirement, but let Zenoh own
-  // the native endpoint metadata after '?' (rel, mixed_rel, multistream, ...).
-  static const std::regex address(
-      "^udp/([A-Za-z0-9_.-]+|\\[[0-9A-Fa-f:]+\\]):([0-9]{1,5})(\\?[^[:space:]]*)?$");
+  // Keep the product's explicit UDP/host/port requirement. Metadata after '?'
+  // is left untouched for the existing Session constructor/open to interpret
+  // through the Zenoh SDK; there is no metadata whitelist or generic parser.
+  static const std::regex address("^udp/([A-Za-z0-9_.-]+|\\[[0-9A-Fa-f:]+\\]):([0-9]{1,5})$");
+  const std::string address_part=endpoint.substr(0,endpoint.find('?'));
   std::smatch match;
-  if(endpoint.size()>255 || !std::regex_match(endpoint,match,address))
+  if(endpoint.size()>255 || !std::regex_match(address_part,match,address))
     throw std::invalid_argument("Zenoh connect must be an explicit UDP address and port");
   const auto port=std::stoul(match[2].str());
   if(port==0 || port>65535) throw std::invalid_argument("Zenoh connect port is invalid");
   if(key.empty() || key.size()>512 || key.find('*')!=std::string::npos) throw std::invalid_argument("Zenoh key must be exact");
-  // Parse the same endpoint through the SDK configuration parser. This is the
-  // authority for native metadata; do not maintain a rel/multistream whitelist.
-  Json::Value config(Json::objectValue);
-  config["mode"]="client";
-  config["listen"]["endpoints"]=Json::Value(Json::arrayValue);
-  config["connect"]["endpoints"].append(endpoint);
-  config["scouting"]["multicast"]["enabled"]=false;
-  config["scouting"]["gossip"]["enabled"]=false;
-  Json::StreamWriterBuilder writer;writer["indentation"]="";
-  const auto document=Json::writeString(writer,config);
-  z_owned_config_t parsed;
-  if(zc_config_from_str(&parsed,document.c_str())<0)
-    throw std::invalid_argument("invalid Zenoh endpoint metadata");
-  z_drop(z_move(parsed));
   z_view_keyexpr_t expression;
   if(z_view_keyexpr_from_str(&expression,key.c_str())<0) throw std::invalid_argument("invalid Zenoh key");
 }
