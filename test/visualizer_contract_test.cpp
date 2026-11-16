@@ -1129,6 +1129,20 @@ TEST(ArIdentity, SceneArTopicIsNotTheFusedScene) {
     EXPECT_STRNE(kIdentityArTopic, "/xgc/scene");
 }
 
+TEST(WorldBoundaryWalls, FourRedWallsProjectOnlyControlBoundsNotPlanningWorkspace) {
+    const auto boundary = parseWorldBoundaryDisplay(
+        R"({"schemaVersion":1,"frameId":"world","unit":"m","controlBounds":{"xMin":-7.5,"xMax":7.5,"yMin":-5.0,"yMax":5.0,"zMin":0.0,"zMax":4.0},"controlVelocityBounds":{"vxMin":-3,"vxMax":3,"vyMin":-3,"vyMax":3,"vzMin":-2,"vzMax":2},"planningBounds":{"xMin":-6.0,"xMax":6.0,"yMin":-4.0,"yMax":4.0,"zMin":0.5,"zMax":3.0},"planningVelocityBounds":{"vxMin":-2,"vxMax":2,"vyMin":-2,"vyMax":2,"vzMin":-1,"vzMax":1},"groundZ":0.0})");
+    const auto entity = worldWallsEntity(boundary, ros::Time(1, 0), "world");
+    ASSERT_EQ(entity.cubes.size(), 4U);
+    EXPECT_DOUBLE_EQ(entity.cubes[0].pose.position.x, -7.5);
+    EXPECT_DOUBLE_EQ(entity.cubes[1].pose.position.x, 7.5);
+    EXPECT_DOUBLE_EQ(entity.cubes[2].pose.position.y, -5.0);
+    EXPECT_DOUBLE_EQ(entity.cubes[3].pose.position.y, 5.0);
+    EXPECT_DOUBLE_EQ(entity.cubes[0].size.z, 4.0);
+    EXPECT_DOUBLE_EQ(boundary.z_min, 0.0);
+    EXPECT_DOUBLE_EQ(boundary.z_max, 4.0);
+}
+
 } // namespace
 } // namespace xgc2_ros_visualizer
 
