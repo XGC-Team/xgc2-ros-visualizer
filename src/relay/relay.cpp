@@ -6,6 +6,7 @@
 #include "../transport/display_wire.hpp"
 #include <boost/make_shared.hpp>
 #include <xgc2_ros_visualizer/declared_wire.hpp>
+#include <xgc2_ros_visualizer/prediction_style.hpp>
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <nav_msgs/Path.h>
@@ -18,6 +19,26 @@ namespace xgc2_ros_visualizer {
 namespace {
 bool due(bool sent, const std::chrono::steady_clock::time_point& last, std::chrono::steady_clock::time_point now, double hz) {
   return !sent || std::chrono::duration<double>(now - last).count() >= 1.0 / hz;
+}
+template<class Wire>
+bool publishDisplay(ros::Publisher& publisher, const boost::shared_ptr<Wire const>& raw, RelayStyle) {
+  publisher.publish(raw);
+  return true;
+}
+bool publishDisplay(ros::Publisher& publisher, const DeclaredWire<nav_msgs::Path>::ConstPtr& raw, RelayStyle style) {
+  if (style != RelayStyle::Fig11) {
+    publisher.publish(raw);
+    return true;
+  }
+  if (!validDisplayWire("nav_msgs/Path",raw->bytes.data(),raw->bytes.size())) return false;
+  nav_msgs::Path path;
+  try {
+    ros::serialization::IStream stream(const_cast<std::uint8_t*>(raw->bytes.data()),
+                                       static_cast<std::uint32_t>(raw->bytes.size()));
+    ros::serialization::deserialize(stream,path);
+  } catch (const ros::serialization::StreamOverrunException&) { return false; }
+  publisher.publish(makeFig11Prediction(path));
+  return true;
 }
 template<class Message> class TypedRelay final : public Relay {
   using Wire=DeclaredWire<Message>;
@@ -59,7 +80,8 @@ template<class Message> class TypedRelay final : public Relay {
       return input;
     }));
     ros::AdvertiseOptions options;
-    options.template init<Wire>(spec.topic,1);
+    if (spec.style == RelayStyle::Fig11) options.init<visualization_msgs::MarkerArray>(spec.topic,1);
+    else options.template init<Wire>(spec.topic,1);
     options.has_header=false; options.latch=snapshot_type_;
     auto gate=gate_;
     boost::function<void(const ros::SingleSubscriberPublisher&)> connect=[gate](const ros::SingleSubscriberPublisher& event){gate->connect(event);};
@@ -78,7 +100,7 @@ template<class Message> class TypedRelay final : public Relay {
     if (!message) return false;
     if (snapshot_type_ && published_message_ &&
         sameWorldSnapshot(message->bytes, published_message_->bytes)) return false;
-    publisher_.publish(message); // Same immutable source shared_ptr; no payload copy/replay.
+    if (!publishDisplay(publisher_,message,spec_.style)) return false;
     if (snapshot_type_) published_message_=message;
     last_=now; sent_=true; ++count_;return true;
   }

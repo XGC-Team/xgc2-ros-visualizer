@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Run the stock ROS1 player with the optional Fig. 11 display relay."""
+
+import argparse
+from pathlib import Path
+import re
+import select
+import signal
+import subprocess
+import sys
+
+import rosbag
+
+
+def predictions(value):
+    topics = value.split()
+    if not topics or len(topics) > 256 or len(set(topics)) != len(topics):
+        raise argparse.ArgumentTypeError("expected distinct prediction topics (up to 256)")
+    for topic in topics:
+        if (not re.fullmatch(r"(?:/[A-Za-z_][A-Za-z0-9_]*)+", topic)
+                or topic == "/xgc/display" or topic.startswith("/xgc/display/") or len(topic) > 499):
+            raise argparse.ArgumentTypeError(f"invalid Fig. 11 prediction topic: {topic}")
+    return topics
+
+
+def check(bag_path, topics):
+    with rosbag.Bag(bag_path, "r") as bag:
+        recorded = bag.get_type_and_topic_info().topics
+        for topic in topics:
+            info = recorded.get(topic)
+            if not info or info.msg_type != "nav_msgs/Path" or not info.message_count:
+                raise ValueError(f"no recorded nav_msgs/Path frames on {topic}")
+            if "/xgc/display" + topic in recorded:
+                raise ValueError(f"recording already contains the display topic for {topic}")
+
+
+def play(topics, args):
+    converter = Path(__file__).resolve().with_name("xgc2_fig11_prediction")
+    children = []
+
+    def stop(_signal, _frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        relay = subprocess.Popen(
+            [str(converter), "--ros", *topics], stdout=subprocess.PIPE, text=True,
+        )
+        children.append(relay)
+        ready, _, _ = select.select([relay.stdout], [], [], 15)
+        if not ready or relay.stdout.readline().strip() != "fig11-ready":
+            raise RuntimeError("Fig. 11 relay did not register on the replay ROS master")
+        # Noetic keeps publishing clock after EOF when --keep-alive is
+        # present, so it never reaches the next loop iteration.
+        if "--loop" in args:
+            args = [arg for arg in args if arg != "--keep-alive"]
+        player = subprocess.Popen(["rosbag", "play", *args])
+        children.append(player)
+        while relay.poll() is None:
+            try:
+                return player.wait(timeout=0.25)
+            except subprocess.TimeoutExpired:
+                pass
+        raise RuntimeError(f"Fig. 11 relay exited during replay ({relay.returncode})")
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.terminate()
+        for child in children:
+            try:
+                child.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("operation", choices=("check", "play"))
+    parser.add_argument("topics", type=predictions)
+    parser.add_argument("args", nargs=argparse.REMAINDER)
+    options = parser.parse_args()
+    try:
+        if options.operation == "check":
+            if len(options.args) != 1:
+                parser.error("check requires exactly one bag filename")
+            check(options.args[0], options.topics)
+            return 0
+        return play(options.topics, options.args)
+    except (OSError, ValueError, RuntimeError, rosbag.ROSBagException) as error:
+        print(f"Fig. 11 replay: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: xgc2-ros-visualizer
 name: XGC2 ROS Visualizer
-version: 0.6.0-4
+version: 0.6.0-5
 kind: ros1-apt
 summary: Single-process ROS visualization server with Run-owned instances, per-robot profiles and kind/channel publication rates with per-robot overrides.
 ros:
@@ -19,6 +19,7 @@ apt:
     - focal
   depends:
   - libxgc2-xrpc2 (>= 0.2.0-1~focal)
+  - ros-noetic-rosbag
   - ros-noetic-xgc2-fs150-description
   - ros-noetic-xgc2-scout-description
   - ros-noetic-xgc2-mecanum-description

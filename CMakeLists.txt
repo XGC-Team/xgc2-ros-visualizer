@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(xgc2_ros_visualizer VERSION 0.6.0 LANGUAGES CXX)
 find_package(catkin REQUIRED COMPONENTS roscpp roslib urdf sensor_msgs nav_msgs geometry_msgs
-  foxglove_msgs mavros_msgs std_msgs tf2_ros visualization_msgs fs150_description)
+  foxglove_msgs mavros_msgs std_msgs rosgraph_msgs tf2_ros visualization_msgs fs150_description)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSONCPP REQUIRED IMPORTED_TARGET jsoncpp)
 find_package(Threads REQUIRED)
@@ -9,8 +9,8 @@ find_package(XgcXrpc 0.2 CONFIG REQUIRED COMPONENTS http)
 find_package(zenohc 1.10.2 EXACT CONFIG REQUIRED)
 catkin_package(INCLUDE_DIRS include LIBRARIES xgc2_ros_visualizer_contract xgc2_ros_visualizer_runtime
   CATKIN_DEPENDS roscpp roslib urdf sensor_msgs nav_msgs geometry_msgs foxglove_msgs mavros_msgs
-  std_msgs tf2_ros visualization_msgs DEPENDS JSONCPP)
-add_library(xgc2_ros_visualizer_contract SHARED src/render/scene_contract.cpp)
+  std_msgs rosgraph_msgs tf2_ros visualization_msgs DEPENDS JSONCPP)
+add_library(xgc2_ros_visualizer_contract SHARED src/render/scene_contract.cpp src/render/prediction_style.cpp)
 add_library(xgc2_ros_visualizer_rpc STATIC src/server/rpc.cpp)
 set_target_properties(xgc2_ros_visualizer_rpc PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(xgc2_ros_visualizer_rpc PRIVATE cxx_std_17)
@@ -34,10 +34,15 @@ add_dependencies(xgc2_ros_visualizer_runtime ${catkin_EXPORTED_TARGETS})
 add_executable(xgc2_ros_visualizer_node src/main.cpp src/server/routes.cpp src/layout/rviz_layout.cpp)
 target_compile_features(xgc2_ros_visualizer_node PRIVATE cxx_std_17)
 target_link_libraries(xgc2_ros_visualizer_node PRIVATE xgc2_ros_visualizer_runtime xgc2_ros_visualizer_rpc XgcXrpc::http)
-install(TARGETS xgc2_ros_visualizer_contract xgc2_ros_visualizer_runtime xgc2_ros_visualizer_node
+add_executable(xgc2_fig11_prediction src/replay/fig11_prediction.cpp)
+target_include_directories(xgc2_fig11_prediction PRIVATE src)
+target_compile_options(xgc2_fig11_prediction PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(xgc2_fig11_prediction PRIVATE xgc2_ros_visualizer_runtime)
+install(TARGETS xgc2_ros_visualizer_contract xgc2_ros_visualizer_runtime xgc2_ros_visualizer_node xgc2_fig11_prediction
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(PROGRAMS src/replay/xgc2_fig11_replay DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 install(DIRECTORY include/${PROJECT_NAME}/ DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
 install(FILES process-definitions/xgc2-ros-visualizer.json
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/process-definitions)
@@ -67,6 +72,10 @@ if(CATKIN_ENABLE_TESTING)
   if(TARGET visualizer_contract_test)
     target_include_directories(visualizer_contract_test PRIVATE src)
     target_link_libraries(visualizer_contract_test xgc2_ros_visualizer_contract)
+  endif()
+  catkin_add_gtest(prediction_style_test test/prediction_style_test.cpp)
+  if(TARGET prediction_style_test)
+    target_link_libraries(prediction_style_test xgc2_ros_visualizer_contract gtest_main)
   endif()
   add_executable(zenoh_test_peer test/zenoh_test_peer.cpp)
   target_link_libraries(zenoh_test_peer zenohc::static)

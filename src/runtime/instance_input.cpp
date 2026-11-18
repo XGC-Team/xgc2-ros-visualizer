@@ -325,7 +325,7 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
   if(!value["displayRelays"].isArray())throw std::invalid_argument("displayRelays must be an array");
   for(const auto& relay:value["displayRelays"]) {
     if(!relay.isObject())throw std::invalid_argument("display relay must be an object");
-    const std::set<std::string> allowed{"source","topic","messageType","maxRateHz","role","zenoh"};
+    const std::set<std::string> allowed{"source","topic","messageType","maxRateHz","role","zenoh","displayStyle"};
     const auto names=relay.getMemberNames();
     if(!relay.isMember("source")||!relay.isMember("topic")||!relay.isMember("messageType"))throw std::invalid_argument("display relay requires source, topic and messageType");
     for(const auto& name:names)if(!allowed.count(name))throw std::invalid_argument("unknown display relay field");
@@ -333,7 +333,13 @@ InstanceSpec projectInstanceInput(const Json::Value& value) {
     std::string kind="global";for(const auto& item:classes)if(source.compare(0,item.first.size()+1,item.first+"/")==0)kind=item.second;
     const double max_rate=relay.isMember("maxRateHz")?ceilingHz(relay["maxRateHz"],0,"maxRateHz"):0;
     const RelayRole role=relay.isMember("role")?relayRole(relay["role"]):RelayRole::None;
-    auto config=relayConfig(source,text(relay["topic"],"relay topic"),text(relay["messageType"],"relay messageType"),parseKind(kind),max_rate,role);
+    auto style=RelayStyle::None;
+    if (relay.isMember("displayStyle")) {
+      if (text(relay["displayStyle"], "displayStyle") != "tro-fig11")
+        throw std::invalid_argument("unsupported displayStyle");
+      style=RelayStyle::Fig11;
+    }
+    auto config=relayConfig(source,text(relay["topic"],"relay topic"),text(relay["messageType"],"relay messageType"),parseKind(kind),max_rate,role,style);
     const bool override=relay_overrides.isMember(source);
     if (override || relay.isMember("zenoh")) {
       const auto& remote=override ? relay_overrides[source] : relay["zenoh"];

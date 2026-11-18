@@ -106,6 +106,13 @@ const char *template2 = R"RVIZ(    - Class: rviz/Image
       Unreliable: false
       Value: true
 )RVIZ";
+const char *fig11Template = R"RVIZ(    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: %s
+      Name: Fig. 11 %s
+      Queue Size: 10
+      Value: true
+)RVIZ";
 const char *template3 = R"RVIZ(  Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -217,6 +224,21 @@ Json::Value prepareRvizLayout(const Json::Value &input) {
   if (!camera.empty()) {
     require(std::regex_match(camera, topic), "invalid camera image topic");
     config += format(template2, {camera});
+  }
+  const auto& visualization = input["visualizationTopics"];
+  require(visualization.isNull() || (visualization.isArray() && visualization.size() <= 64),
+          "invalid RViz visualizationTopics");
+  std::set<std::string> predictions;
+  for (const auto& layer : visualization) {
+    if (layer.get("displayStyle", "").asString() != "tro-fig11") continue;
+    require(layer["role"].asString() == "prediction" && layer["messageType"].asString() == "nav_msgs/Path",
+            "tro-fig11 requires a prediction Path");
+    if (!layer["visible3d"].asBool()) continue;
+    const auto source = layer["topic"].asString();
+    require(std::regex_match(source, topic) && source != "/xgc/display" &&
+                source.compare(0, 13, "/xgc/display/") != 0 && predictions.insert(source).second,
+            "invalid or repeated RViz prediction topic");
+    config += format(fig11Template, {"/xgc/display" + source, source});
   }
   double span = 0;
   for (int axis = 0; axis < 3; ++axis)

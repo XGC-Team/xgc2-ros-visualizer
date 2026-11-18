@@ -164,8 +164,8 @@ double historyPublishHz(double channel_hz, double history_max_hz) {
 }
 RelayConfig relayConfig(const std::string& source, const std::string& topic,
                       const std::string& message_type, RateKind kind,
-                      double max_rate_hz, RelayRole role) {
-  RelayConfig spec{source,topic,message_type,kind,Channel::DisplayPath,0,role,"",""};
+                      double max_rate_hz, RelayRole role, RelayStyle style) {
+  RelayConfig spec{source,topic,message_type,kind,Channel::DisplayPath,0,role,"","",style};
   if (!canonicalTopic(spec.source) || spec.source=="/xgc/display" || spec.source.compare(0,13,"/xgc/display/")==0 ||
       spec.topic!="/xgc/display"+spec.source)
     throw std::invalid_argument("relay needs a canonical source and its display copy");
@@ -177,6 +177,8 @@ RelayConfig relayConfig(const std::string& source, const std::string& topic,
   else if (spec.message_type=="visualization_msgs/Marker") spec.channel=Channel::DisplayMarker;
   else if (spec.message_type=="visualization_msgs/MarkerArray") spec.channel=Channel::DisplayMarkerArray;
   else throw std::invalid_argument("relay requires PointCloud2, OccupancyGrid, Path, PoseArray, Marker or MarkerArray");
+  if (style == RelayStyle::Fig11 && (role != RelayRole::Prediction || message_type != "nav_msgs/Path"))
+    throw std::invalid_argument("tro-fig11 requires a prediction Path");
   return spec;
 }
 } // namespace xgc2_ros_visualizer

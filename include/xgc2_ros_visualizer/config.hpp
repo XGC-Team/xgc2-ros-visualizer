@@ -22,6 +22,7 @@ enum class Channel : std::size_t {
 // Display-copy role. None is a missing or null declaration. The other three are
 // the roles a relay layer already uses; anything else fails validation.
 enum class RelayRole : std::uint8_t { None, Prediction, Obstacle, Semantic };
+enum class RelayStyle : std::uint8_t { None, Fig11 };
 constexpr std::size_t kKindCount = static_cast<std::size_t>(RateKind::Count);
 constexpr std::size_t kChannelCount = static_cast<std::size_t>(Channel::Count);
 const char* kindName(RateKind kind);
@@ -71,15 +72,18 @@ struct RelayConfig {
   double max_rate_hz{0};
   RelayRole role{RelayRole::None};
   std::string zenoh_endpoint, zenoh_key;  // empty selects local ROS
+  RelayStyle style{RelayStyle::None};
   bool operator==(const RelayConfig& other) const {
     return source == other.source && topic == other.topic && message_type == other.message_type &&
         kind == other.kind && channel == other.channel && max_rate_hz == other.max_rate_hz &&
-        role == other.role && zenoh_endpoint == other.zenoh_endpoint && zenoh_key == other.zenoh_key;
+        role == other.role && zenoh_endpoint == other.zenoh_endpoint && zenoh_key == other.zenoh_key &&
+        style == other.style;
   }
 };
 RelayConfig relayConfig(const std::string& source, const std::string& topic,
                       const std::string& message_type, RateKind kind,
-                      double max_rate_hz = 0, RelayRole role = RelayRole::None);
+                      double max_rate_hz = 0, RelayRole role = RelayRole::None,
+                      RelayStyle style = RelayStyle::None);
 // min(kind-row rate, maxRateHz when set, predictionMaxRateHz when role is prediction).
 // A declaration above the kind row does not raise the copy rate.
 double relayPublishHz(const Rates& rates, const RelayConfig& spec, double prediction_max_hz);

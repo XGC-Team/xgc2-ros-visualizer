@@ -12,7 +12,10 @@ for path in lib/libxgc2_ros_visualizer_runtime.so lib/libxgc2_ros_visualizer_con
 done
 binary="$prefix/lib/xgc2_ros_visualizer/xgc2_ros_visualizer_node"
 test -x "$binary"
-for path in "$binary" "$prefix/lib/libxgc2_ros_visualizer_runtime.so" "$prefix/lib/libxgc2_ros_visualizer_contract.so"; do
+converter="$prefix/lib/xgc2_ros_visualizer/xgc2_fig11_prediction"
+test -x "$converter"
+"$prefix/lib/xgc2_ros_visualizer/xgc2_fig11_replay" --help >/dev/null
+for path in "$binary" "$converter" "$prefix/lib/libxgc2_ros_visualizer_runtime.so" "$prefix/lib/libxgc2_ros_visualizer_contract.so"; do
   linkage="$(ldd "$path")"
   [[ "$linkage" != *'not found'* ]]
   if printf '%s\n' "$linkage" | grep -Eq 'lib(fs150_uav_visualizer|scout_ugv_visualizer|mecanum_ugv_visualizer|robot_description_runtime|robot_path_runtime)\.so'; then

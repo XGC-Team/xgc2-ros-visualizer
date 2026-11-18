@@ -28,6 +28,24 @@ TEST(RVizLayout, PreservesFrozenMixedRobotLayout) {
   EXPECT_EQ(result["worldClock"].asString(), "simulation");
 }
 
+TEST(RVizLayout, UsesNativeMarkerArrayForOptInPredictions) {
+  auto value = input();
+  auto& topic = value["visualizationTopics"][0];
+  topic["topic"] = "/uav1/alg/predicted_trajectory";
+  topic["visible3d"] = true;
+  topic["role"] = "prediction";
+  topic["messageType"] = "nav_msgs/Path";
+  const auto legacy = xgc2_ros_visualizer::prepareRvizLayout(value)["config"].asString();
+  EXPECT_EQ(legacy.find("predicted_trajectory"), std::string::npos);
+  topic["displayStyle"] = "tro-fig11";
+  const auto styled = xgc2_ros_visualizer::prepareRvizLayout(value)["config"].asString();
+  EXPECT_NE(styled.find("Class: rviz/MarkerArray"), std::string::npos);
+  EXPECT_NE(styled.find("Marker Topic: /xgc/display/uav1/alg/predicted_trajectory"),
+            std::string::npos);
+  topic["messageType"] = "geometry_msgs/PoseArray";
+  EXPECT_THROW(xgc2_ros_visualizer::prepareRvizLayout(value), std::invalid_argument);
+}
+
 TEST(RVizLayout, RejectsDuplicateMembershipAndMixedTransformTrees) {
   auto value = input();
   value["robots"][1]["namespace"] = value["robots"][0]["namespace"];
