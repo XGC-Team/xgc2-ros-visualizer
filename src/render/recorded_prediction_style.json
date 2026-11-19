@@ -1,0 +1,13 @@
+{
+  "schema": "xgc.recorded-prediction-style.v1",
+  "displayArcCuts": [0.62, 0.84],
+  "minimumArcLengthMeters": 0.06,
+  "markers": [
+    {"role": "ht", "type": 4, "color": "#0072b2", "alpha": 0.96, "sizeMeters": 0.042},
+    {"role": "ha", "type": 4, "color": "#e5b51b", "alpha": 0.96, "sizeMeters": 0.04788},
+    {"role": "hb", "type": 4, "color": "#d55a5a", "alpha": 0.96, "sizeMeters": 0.044520000000000004},
+    {"role": "j1", "type": 7, "color": "#00659e", "alpha": 0.99, "sizeMeters": 0.09728},
+    {"role": "j2", "type": 7, "color": "#c99700", "alpha": 0.99, "sizeMeters": 0.10496},
+    {"role": "stop", "type": 6, "color": "#b43c3c", "alpha": 1.0, "sizeMeters": 0.13119999999999998}
+  ]
+}

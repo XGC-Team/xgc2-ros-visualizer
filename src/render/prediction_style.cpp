@@ -1,9 +1,14 @@
 #include <xgc2_ros_visualizer/prediction_style.hpp>
 
+#include "prediction_style_data.hpp"
+
+#include <json/json.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -13,29 +18,45 @@ namespace {
 using geometry_msgs::Point;
 using visualization_msgs::Marker;
 
-constexpr double kWidth = 0.042;
-constexpr double kTerminalRadius = 0.064;
-constexpr double kTrackEnd = 0.62;
-constexpr double kAdjustEnd = 0.84;
-
-struct Style {
-  const char* name;
-  int type;
-  std::uint32_t rgb;
-  float alpha;
-  double size;
+struct DisplayStyle {
+  std::array<double, 2> cuts;
+  double minimumArcLength;
+  visualization_msgs::MarkerArray template_markers;
 };
 
-// Source: paper-dmpc-revision Fig. 11a and xgc2-headless-media
-// make_horizon_markers/style_lock.yaml, dc2375c80.
-const std::array<Style, 6> kStyles{{
-    {"ht", Marker::LINE_STRIP, 0x0072b2, 0.96f, kWidth},
-    {"ha", Marker::LINE_STRIP, 0xe5b51b, 0.96f, 1.14 * kWidth},
-    {"hb", Marker::LINE_STRIP, 0xd55a5a, 0.96f, 1.06 * kWidth},
-    {"j1", Marker::SPHERE_LIST, 0x00659e, 0.99f, 2 * 0.76 * kTerminalRadius},
-    {"j2", Marker::SPHERE_LIST, 0xc99700, 0.99f, 2 * 0.82 * kTerminalRadius},
-    {"stop", Marker::CUBE_LIST, 0xb43c3c, 1.0f, 2.05 * kTerminalRadius},
-}};
+const DisplayStyle& recordedPredictionStyle() {
+  static const auto style = [] {
+    Json::Value value;
+    Json::Reader reader;
+    if (!reader.parse(kRecordedPredictionStyle, value) ||
+        value["schema"] != "xgc.recorded-prediction-style.v1")
+      throw std::logic_error("invalid compiled recorded prediction style");
+    DisplayStyle result;
+    const auto& cuts = value["displayArcCuts"];
+    result.cuts = {{cuts[0].asDouble(), cuts[1].asDouble()}};
+    result.minimumArcLength = value["minimumArcLengthMeters"].asDouble();
+    if (value["markers"].size() != 6 || !(0.0 < result.cuts[0] && result.cuts[0] < result.cuts[1] &&
+                                         result.cuts[1] < 1.0 && result.minimumArcLength > 0.0))
+      throw std::logic_error("invalid recorded prediction marker roles or arc cuts");
+    result.template_markers.markers.reserve(6);
+    for (const auto& style : value["markers"]) {
+      Marker marker;
+      marker.ns = std::string("tro_fig11_") + style["role"].asString();
+      marker.type = style["type"].asInt();
+      marker.action = Marker::DELETE;
+      marker.pose.orientation.w = 1.0;
+      marker.scale.x = marker.scale.y = marker.scale.z = style["sizeMeters"].asDouble();
+      const auto rgb = std::stoul(style["color"].asString().substr(1), nullptr, 16);
+      marker.color.r = ((rgb >> 16) & 255) / 255.0f;
+      marker.color.g = ((rgb >> 8) & 255) / 255.0f;
+      marker.color.b = (rgb & 255) / 255.0f;
+      marker.color.a = style["alpha"].asFloat();
+      result.template_markers.markers.push_back(std::move(marker));
+    }
+    return result;
+  }();
+  return style;
+}
 
 bool cumulativeDistances(const nav_msgs::Path& path, std::vector<double>& cumulative) {
   if (path.header.frame_id.empty() || path.poses.size() < 2) return false;
@@ -85,21 +106,10 @@ void copySection(const nav_msgs::Path& path, const std::vector<double>& cumulati
 }  // namespace
 
 visualization_msgs::MarkerArray makeFig11Prediction(const nav_msgs::Path& path) {
-  visualization_msgs::MarkerArray result;
-  for (const auto& style : kStyles) {
-    Marker marker;
+  const auto& profile = recordedPredictionStyle();
+  auto result = profile.template_markers;
+  for (auto& marker : result.markers)
     marker.header = path.header;
-    marker.ns = std::string("tro_fig11_") + style.name;
-    marker.type = style.type;
-    marker.action = Marker::DELETE;
-    marker.pose.orientation.w = 1.0;
-    marker.scale.x = marker.scale.y = marker.scale.z = style.size;
-    marker.color.r = ((style.rgb >> 16) & 255) / 255.0f;
-    marker.color.g = ((style.rgb >> 8) & 255) / 255.0f;
-    marker.color.b = (style.rgb & 255) / 255.0f;
-    marker.color.a = style.alpha;
-    result.markers.push_back(std::move(marker));
-  }
 
   std::vector<double> cumulative;
   cumulative.reserve(path.poses.size());
@@ -108,11 +118,11 @@ visualization_msgs::MarkerArray makeFig11Prediction(const nav_msgs::Path& path) 
   stop.action = Marker::ADD;
   stop.points.push_back(path.poses.back().pose.position);
   const double length = cumulative.back();
-  if (length < 0.06) return result;
+  if (length < profile.minimumArcLength) return result;
 
   // Color the recorded polyline. Insert only the two band crossings, so the
   // display never shortcuts a corner or changes the original Path terminal.
-  const std::array<double, 4> cuts{{0.0, kTrackEnd * length, kAdjustEnd * length, length}};
+  const std::array<double, 4> cuts{{0.0, profile.cuts[0] * length, profile.cuts[1] * length, length}};
   for (std::size_t i = 0; i + 1 < cuts.size(); ++i)
     copySection(path, cumulative, cuts[i], cuts[i + 1], result.markers[i]);
   for (std::size_t i = 0; i < 2; ++i) {

@@ -199,7 +199,7 @@ limit structs; nothing is read from the environment). The whole product builds
 as C++17 with the Focal compiler; the runtime and contract libraries stay C++14
 for their consumers. The SDK is not copied into this product.
 
-The native package is `ros-noetic-xgc2-ros-visualizer`, version 0.5.0-1. It installs
+The native package is `ros-noetic-xgc2-ros-visualizer`. It installs
 one executable, the runtime/contract libraries, public canonical headers and
 the process definition. Consumers use
 `find_package(catkin REQUIRED COMPONENTS xgc2_ros_visualizer)`.

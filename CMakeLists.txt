@@ -10,7 +10,12 @@ find_package(zenohc 1.10.2 EXACT CONFIG REQUIRED)
 catkin_package(INCLUDE_DIRS include LIBRARIES xgc2_ros_visualizer_contract xgc2_ros_visualizer_runtime
   CATKIN_DEPENDS roscpp roslib urdf sensor_msgs nav_msgs geometry_msgs foxglove_msgs mavros_msgs
   std_msgs rosgraph_msgs tf2_ros visualization_msgs DEPENDS JSONCPP)
+set(prediction_style "${CMAKE_CURRENT_SOURCE_DIR}/src/render/recorded_prediction_style.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${prediction_style}")
+file(READ "${prediction_style}" RECORDED_PREDICTION_STYLE)
+configure_file(src/render/prediction_style_data.hpp.in prediction_style_data.hpp @ONLY)
 add_library(xgc2_ros_visualizer_contract SHARED src/render/scene_contract.cpp src/render/prediction_style.cpp)
+target_include_directories(xgc2_ros_visualizer_contract PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 add_library(xgc2_ros_visualizer_rpc STATIC src/server/rpc.cpp)
 set_target_properties(xgc2_ros_visualizer_rpc PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(xgc2_ros_visualizer_rpc PRIVATE cxx_std_17)
@@ -43,6 +48,7 @@ install(TARGETS xgc2_ros_visualizer_contract xgc2_ros_visualizer_runtime xgc2_ro
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 install(PROGRAMS src/replay/xgc2_fig11_replay DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(FILES "${prediction_style}" DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
 install(DIRECTORY include/${PROJECT_NAME}/ DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
 install(FILES process-definitions/xgc2-ros-visualizer.json
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/process-definitions)

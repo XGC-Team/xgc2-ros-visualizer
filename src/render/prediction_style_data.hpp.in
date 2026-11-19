@@ -1,0 +1,5 @@
+#pragma once
+
+namespace xgc2_ros_visualizer {
+constexpr char kRecordedPredictionStyle[] = R"xgc(@RECORDED_PREDICTION_STYLE@)xgc";
+}
