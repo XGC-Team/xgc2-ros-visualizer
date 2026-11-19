@@ -38,7 +38,7 @@ TEST(Fig11Prediction, PreservesFrameStampsAndExactEndpointAndUsesAuthorGeometry)
   const auto& m = overlay.markers;
   ASSERT_EQ(m.size(), 6u);
   const std::array<std::uint32_t, 6> colors{{0x0072b2, 0xe5b51b, 0xd55a5a, 0x00659e, 0xc99700, 0xb43c3c}};
-  const std::array<std::size_t, 6> samples{{13, 5, 5, 1, 1, 1}};
+  const std::array<std::size_t, 6> samples{{3, 2, 2, 1, 1, 1}};
   const std::array<int, 6> types{{Marker::LINE_STRIP, Marker::LINE_STRIP, Marker::LINE_STRIP,
                                   Marker::SPHERE_LIST, Marker::SPHERE_LIST, Marker::CUBE_LIST}};
   for (std::size_t i = 0; i < m.size(); ++i) {
@@ -57,10 +57,52 @@ TEST(Fig11Prediction, PreservesFrameStampsAndExactEndpointAndUsesAuthorGeometry)
   EXPECT_DOUBLE_EQ(m[5].scale.x, 2.05 * 0.064);
   EXPECT_DOUBLE_EQ(m[0].points.back().z, 3.2);
   EXPECT_DOUBLE_EQ(m[1].points.back().z, 5.4);
-  EXPECT_DOUBLE_EQ(m[2].points[1].z, 6.1);
+  EXPECT_EQ(m[0].points[0], path.poses[0].pose.position);
+  EXPECT_EQ(m[0].points[1], path.poses[1].pose.position);  // The original right angle.
+  EXPECT_EQ(m[2].points.back(), path.poses.back().pose.position);
   EXPECT_EQ(m[0].points.back(), m[1].points.front());
   EXPECT_EQ(m[1].points.back(), m[2].points.front());
   EXPECT_EQ(m[5].points.front(), path.poses.back().pose.position);
+}
+
+TEST(Fig11Prediction, UsesExactVertexCrossingsWithoutInsertingExtraPoints) {
+  auto path = example();
+  path.poses[1].pose.position.x = 62;
+  path.poses[2].pose.position.x = 62;
+  path.poses[2].pose.position.y = 22;
+  path.poses[2].pose.position.z = 0;
+  auto final = path.poses.back();
+  final.pose.position.z = 16;
+  path.poses.push_back(final);
+  const auto overlay = makeFig11Prediction(path);
+  for (std::size_t i = 0; i < 3; ++i) {
+    const auto& line = overlay.markers[i];
+    ASSERT_EQ(line.points.size(), 2u);
+    EXPECT_EQ(line.points.front(), path.poses[i].pose.position);
+    EXPECT_EQ(line.points.back(), path.poses[i + 1].pose.position);
+  }
+  EXPECT_EQ(overlay.markers[5].points.front(), final.pose.position);
+}
+
+TEST(Fig11Prediction, InsertsBothCrossingsOnOneEdgeAndRetainsRepeatedSamples) {
+  auto path = example();
+  path.poses[1] = path.poses.front();
+  path.poses.back() = path.poses.front();
+  path.poses.back().pose.position.x = 100;
+  const auto overlay = makeFig11Prediction(path);
+  const auto& blue = overlay.markers[0].points;
+  const auto& gold = overlay.markers[1].points;
+  const auto& red = overlay.markers[2].points;
+  ASSERT_EQ(blue.size(), 3u);
+  ASSERT_EQ(gold.size(), 2u);
+  ASSERT_EQ(red.size(), 2u);
+  EXPECT_EQ(blue[0], path.poses[0].pose.position);
+  EXPECT_EQ(blue[1], path.poses[1].pose.position);
+  EXPECT_DOUBLE_EQ(blue.back().x, 62);
+  EXPECT_DOUBLE_EQ(gold.back().x, 84);
+  EXPECT_EQ(blue.back(), gold.front());
+  EXPECT_EQ(gold.back(), red.front());
+  EXPECT_EQ(red.back(), path.poses.back().pose.position);
 }
 
 TEST(Fig11Prediction, DeletesStaleMarkersForAbsentOrInvalidPathsAndKeepsOnlyShortPathTerminal) {

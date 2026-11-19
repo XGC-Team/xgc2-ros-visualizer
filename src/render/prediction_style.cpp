@@ -54,22 +54,32 @@ bool cumulativeDistances(const nav_msgs::Path& path, std::vector<double>& cumula
   return true;
 }
 
-Point pointAt(const nav_msgs::Path& path, const std::vector<double>& cumulative,
-              double fraction) {
-  if (fraction <= 0.0) return path.poses.front().pose.position;
-  if (fraction >= 1.0) return path.poses.back().pose.position;
-  const double distance = fraction * cumulative.back();
-  const auto next = std::upper_bound(cumulative.begin(), cumulative.end(), distance);
-  const std::size_t i = std::min<std::size_t>(next - cumulative.begin() - 1, path.poses.size() - 2);
-  const double length = cumulative[i + 1] - cumulative[i];
-  const double weight = length < 1e-9 ? 0.0 : (distance - cumulative[i]) / length;
-  const auto& start = path.poses[i].pose.position;
-  const auto& end = path.poses[i + 1].pose.position;
+// The crossing is strictly inside the edge. Exact vertex hits are copied from
+// the input by copySection, so the stored coordinate is never interpolated.
+Point edgePoint(const nav_msgs::Path& path, const std::vector<double>& cumulative,
+                std::size_t next, double distance) {
+  const double start_distance = cumulative[next - 1];
+  const double weight = (distance - start_distance) / (cumulative[next] - start_distance);
+  const auto& start = path.poses[next - 1].pose.position;
+  const auto& end = path.poses[next].pose.position;
   Point p;
   p.x = start.x + weight * (end.x - start.x);
   p.y = start.y + weight * (end.y - start.y);
   p.z = start.z + weight * (end.z - start.z);
   return p;
+}
+
+void copySection(const nav_msgs::Path& path, const std::vector<double>& cumulative,
+                 double begin, double end, Marker& line) {
+  const auto first = std::lower_bound(cumulative.begin(), cumulative.end(), begin);
+  const auto after = std::upper_bound(first, cumulative.end(), end);
+  line.action = Marker::ADD;
+  if (*first > begin)
+    line.points.push_back(edgePoint(path, cumulative, first - cumulative.begin(), begin));
+  for (auto vertex = first; vertex != after; ++vertex)
+    line.points.push_back(path.poses[vertex - cumulative.begin()].pose.position);
+  if (*(after - 1) < end)
+    line.points.push_back(edgePoint(path, cumulative, after - cumulative.begin(), end));
 }
 
 }  // namespace
@@ -97,20 +107,14 @@ visualization_msgs::MarkerArray makeFig11Prediction(const nav_msgs::Path& path) 
   auto& stop = result.markers[5];
   stop.action = Marker::ADD;
   stop.points.push_back(path.poses.back().pose.position);
-  if (cumulative.back() < 0.06) return result;
+  const double length = cumulative.back();
+  if (length < 0.06) return result;
 
-  auto fill = [&](Marker& line, int steps, double start, double end, bool decelerated) {
-    line.action = Marker::ADD;
-    for (int step = 0; step <= steps; ++step) {
-      const double u = double(step) / steps;
-      const double progress = decelerated ? u * (2.0 - u) : u;
-      const double fraction = step == steps ? end : start + (end - start) * progress;
-      line.points.push_back(pointAt(path, cumulative, fraction));
-    }
-  };
-  fill(result.markers[0], 12, 0.0, kTrackEnd, false);
-  fill(result.markers[1], 4, kTrackEnd, kAdjustEnd, false);
-  fill(result.markers[2], 4, kAdjustEnd, 1.0, true);
+  // Color the recorded polyline. Insert only the two band crossings, so the
+  // display never shortcuts a corner or changes the original Path terminal.
+  const std::array<double, 4> cuts{{0.0, kTrackEnd * length, kAdjustEnd * length, length}};
+  for (std::size_t i = 0; i + 1 < cuts.size(); ++i)
+    copySection(path, cumulative, cuts[i], cuts[i + 1], result.markers[i]);
   for (std::size_t i = 0; i < 2; ++i) {
     auto& joint = result.markers[3 + i];
     joint.action = Marker::ADD;
